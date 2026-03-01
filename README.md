@@ -1,0 +1,224 @@
+# hmscmdr-parquet-cli
+
+CLI tool for exporting HEC-HMS results to **GeoParquet**, querying with **DuckDB**, and generating **PMTiles** for web visualization.
+
+Built on top of [`hms-commander`](https://github.com/gpt-cmdr/hms-commander).
+
+## Installation
+
+```bash
+# Base installation (GeoParquet export only)
+pip install hmscmdr-parquet-cli
+
+# With DuckDB support
+pip install hmscmdr-parquet-cli[duckdb]
+
+# With PostGIS sync
+pip install hmscmdr-parquet-cli[postgis]
+
+# All features
+pip install hmscmdr-parquet-cli[all]
+```
+
+### PMTiles Generation
+
+PMTiles generation requires external CLI tools:
+- **tippecanoe** — Install via conda-forge: `conda install -c conda-forge tippecanoe`
+- **pmtiles** — Install from protomaps: `go install github.com/protomaps/go-pmtiles/pmtiles@latest`
+
+On Windows, these are easiest to install via WSL or conda-forge.
+
+## Quick Start
+
+### Export Geometry
+
+```bash
+# From basin model file (exports subbasins by default)
+hmscmdr-parquet geometry model.basin subbasins.parquet
+
+# Specific layer (subbasins, reaches, junctions, watershed)
+hmscmdr-parquet geometry model.basin reaches.parquet --layer reaches
+
+# With explicit CRS (recommended for reprojection to WGS84)
+hmscmdr-parquet geometry model.basin subbasins.parquet --crs EPSG:2278 --out-crs EPSG:4326
+```
+
+### Export Results
+
+```bash
+# Export peak outflow statistics from HMS results folder
+hmscmdr-parquet results ./results/ subbasin_flow.parquet \
+    --type subbasin \
+    --var "Flow Out"
+
+# All element types
+hmscmdr-parquet results ./results/ all_results.parquet --type all
+
+# Stage instead of flow
+hmscmdr-parquet results ./results/ stage.parquet --type reach --var Stage
+```
+
+### Query with DuckDB
+
+```bash
+# Filter by peak flow threshold
+hmscmdr-parquet query subbasin_flow.parquet \
+    "SELECT * FROM _ WHERE max_value > 1000 ORDER BY max_value DESC"
+
+# Time of peak analysis
+hmscmdr-parquet query subbasin_flow.parquet \
+    "SELECT name, max_value, time_of_max, units FROM _ WHERE max_value > 500"
+
+# Save results to file
+hmscmdr-parquet query subbasin_flow.parquet \
+    "SELECT * FROM _ WHERE max_value > 1000" \
+    --output high_flow_subbasins.parquet
+```
+
+### Generate PMTiles
+
+```bash
+# From GeoParquet (requires tippecanoe + pmtiles CLI)
+hmscmdr-parquet pmtiles subbasins.parquet subbasins.pmtiles \
+    --layer subbasins \
+    --min-zoom 8 \
+    --max-zoom 14
+```
+
+### Sync to PostGIS
+
+```bash
+# Upload to PostGIS
+hmscmdr-parquet sync subbasins.parquet \
+    "postgresql://user:pass@192.168.3.30:5432/gis_data" \
+    hms_subbasins \
+    --schema uberclaw
+```
+
+## Python API
+
+```python
+from hmscmdr_parquet import (
+    export_basin_geometry,
+    export_hms_results,
+    DuckSession,
+    generate_pmtiles_from_input,
+    sync_to_postgres
+)
+
+# Export geometry
+export_basin_geometry("model.basin", "subbasins.parquet", layer="subbasins")
+
+# Export results (parses RUN_*.results XML for summary statistics)
+export_hms_results(
+    "./results/",
+    "subbasin_flow.parquet",
+    element_type="subbasin",
+    variable="Outflow"
+)
+
+# Query with DuckDB
+session = DuckSession()
+session.register_parquet("subbasin_flow.parquet")
+df = session.query("SELECT * FROM _ WHERE max_value > 1000")
+session.close()
+
+# Generate PMTiles (requires tippecanoe + pmtiles CLI)
+generate_pmtiles_from_input("subbasins.parquet", "subbasins.pmtiles")
+
+# Sync to PostGIS
+sync_to_postgres(
+    "subbasins.parquet",
+    "postgresql://user:pass@host:5432/db",
+    "hms_subbasins",
+    schema="uberclaw"
+)
+```
+
+## Tifton Example
+
+The [Tifton HMS example project](https://github.com/gpt-cmdr/hms-commander/tree/main/hms_example_projects/tifton) demonstrates the complete workflow:
+
+```bash
+# Set paths
+set TIFTON=C:\GH\hms-commander\hms_example_projects\tifton
+
+# Export subbasin geometry
+hmscmdr-parquet geometry %TIFTON%\Tifton.basin tifton_subbasins.parquet --layer subbasins
+
+# Export peak outflow results
+hmscmdr-parquet results %TIFTON%\results tifton_outflow.parquet --type subbasin --var Outflow
+
+# Query for high flows
+hmscmdr-parquet query tifton_outflow.parquet "SELECT name, max_value, time_of_max FROM _ WHERE max_value > 500"
+
+# Sync to PostGIS
+hmscmdr-parquet sync tifton_subbasins.parquet "postgresql://uberclaw:pass@192.168.3.30:5432/gis_data" tifton_subbasins --schema uberclaw
+```
+
+## Architecture
+
+```
+HEC-HMS Model (.basin, results/RUN_*.results)
+         ↓
+   hms-commander (geometry + XML parsing)
+         ↓
+   GeoParquet (.parquet)
+         ↓
+   ┌───────┴────────┐
+   ↓                ↓
+DuckDB          PostGIS
+(query)        (multi-user)
+   ↓                ↓
+   └───────┬────────┘
+           ↓
+      PMTiles (.pmtiles)
+           ↓
+      MapLibre GL
+```
+
+## Notes
+
+### CRS Handling
+
+- If your HMS project has a `.prj` file or CRS is detected automatically, geometry will be reprojected to WGS84 (EPSG:4326) by default.
+- Use `--crs EPSG:XXXX` to specify the input CRS manually if auto-detection fails.
+- Use `--out-crs EPSG:XXXX` to control output CRS.
+
+### Results Export
+
+- Results are extracted from the `RUN_*.results` XML files generated by HEC-HMS.
+- This provides summary statistics (peak, min, mean, time of peak) without requiring DSS file access.
+- For full time-series export, `pyjnius` + HEC-DSS libraries are required (currently not bundled).
+
+### PMTiles on Windows
+
+- Install tippecanoe and pmtiles via conda-forge or WSL.
+- The CLI will produce a clear error if the tools are not found.
+
+## Development
+
+```bash
+# Clone and install in dev mode
+git clone https://github.com/gpt-cmdr/hmscmdr-parquet-cli
+cd hmscmdr-parquet-cli
+pip install -e ".[all]"
+
+# Run tests
+pytest tests/
+
+# Build package
+python -m build
+
+# Publish to PyPI
+python -m twine upload dist/*
+```
+
+## License
+
+MIT - See LICENSE file
+
+## Author
+
+William M. Katzenmeyer, P.E., C.F.M.  
+CLB Engineering Corporation

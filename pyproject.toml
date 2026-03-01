@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hmscmdr-parquet-cli"
+version = "0.1.0"
+description = "CLI tool for exporting HEC-HMS results to GeoParquet and PMTiles using hms-commander"
+readme = "README.md"
+license = "MIT"
+license-files = []
+authors = [
+    {name = "William M. Katzenmeyer, P.E., C.F.M.", email = "bill@clbengineering.com"}
+]
+requires-python = ">=3.10"
+dependencies = [
+    "hms-commander>=0.1.0",
+    "typer>=0.9.0",
+    "rich>=13.0.0",
+    "pandas>=2.0.0",
+    "geopandas>=0.14.0",
+    "pyarrow>=14.0.0",
+]
+
+[project.optional-dependencies]
+duckdb = [
+    "duckdb>=1.4.0",
+]
+postgis = [
+    "sqlalchemy>=2.0.0",
+    "geoalchemy2>=0.14.0",
+    "psycopg[binary]>=3.2.0",
+]
+pmtiles = [
+    # NOTE: the PyPI "tippecanoe" package is a Python wrapper and does *not* ship the CLI.
+    # Install the CLI separately (e.g. conda-forge) for `hmscmdr-parquet pmtiles`.
+    "rasterio>=1.3.0",
+]
+dev = [
+    "pytest>=8.0.0",
+]
+all = [
+    "duckdb>=1.4.0",
+    "sqlalchemy>=2.0.0",
+    "geoalchemy2>=0.14.0",
+    "psycopg[binary]>=3.2.0",
+    "rasterio>=1.3.0",
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+hmscmdr-parquet = "hmscmdr_parquet.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/gpt-cmdr/hmscmdr-parquet-cli"
+Repository = "https://github.com/gpt-cmdr/hmscmdr-parquet-cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["hmscmdr_parquet*"]
