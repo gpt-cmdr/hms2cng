@@ -4,27 +4,49 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-CLI tool for exporting HEC-HMS (Hydrologic Modeling System) results to GeoParquet format, with DuckDB querying, PMTiles generation, and PostGIS sync. Built on top of `hms-commander` for HMS model parsing.
+**hms2cng** (HMS to Cloud Native GIS) — CLI tool for exporting HEC-HMS (Hydrologic Modeling System) results to GeoParquet format, with DuckDB querying, PMTiles generation, and PostGIS sync. Built on top of `hms-commander` for HMS model parsing.
 
 ## Commands
 
 ```bash
-# Install in dev mode with all optional dependencies
-pip install -e ".[all]"
+# Install in dev mode with all optional dependencies (UV - preferred)
+uv pip install -e ".[all]"
 
 # Run all tests
-pytest tests/ -v
+uv run pytest tests/ -v
 
 # Run a single test
-pytest tests/test_geometry.py::test_get_subbasins_points -v
+uv run pytest tests/test_geometry.py::test_get_subbasins_points -v
+
+# Run the CLI
+uv run hms2cng --help
+
+# Update the lock file after dependency changes
+uv lock
 
 # Build distribution
-python -m build
+uv run python -m build
+
+# Run a marimo notebook interactively
+uv run marimo edit examples/01_export_geometry.py
+
+# Build and preview docs locally
+uv run mkdocs serve
+
+# Build docs static site
+uv run mkdocs build
 ```
+
+## Package Management
+
+- Use `uv pip install -e ".[all]"` for local dev (10-100x faster than pip)
+- `uv.lock` is checked into git — commit it when dependencies change (`uv lock`)
+- `hms-commander` resolves to `../hms-commander` (local editable) via `[tool.uv.sources]`
+- For publishing: remove `[tool.uv.sources]` block so PyPI version is used
 
 ## Architecture
 
-The package (`hmscmdr_parquet/`) follows a pipeline architecture:
+The package (`hms2cng/`) follows a pipeline architecture:
 
 ```
 HMS model files (.basin, .results XML)
@@ -55,6 +77,17 @@ HMS model files (.basin, .results XML)
 - **CRS handling**: Auto-detected from HMS project via `init_hms_project()`. If detection fails, no reprojection occurs (rather than erroring).
 - **Optional dependencies**: duckdb, postgis, and pmtiles extras are guarded by import checks. Core functionality (geometry + results export) works with base dependencies only.
 - **Variable normalization**: User-facing names like "Flow Out" or "Stage" are mapped to HMS XML element prefixes in `results.py`.
+
+## Examples
+
+`examples/` contains marimo reactive notebooks (`.py` format). Run interactively with `marimo edit` or as scripts with `uv run python`.
+
+- `00_using_hms_examples.py` — HmsExamples API intro (list versions, extract projects)
+- `01_export_geometry.py` — Export all geometry layers from Tifton example
+- `02_export_results.py` — Export results + spatial join
+- `03_duckdb_query.py` — SQL analytics on GeoParquet with DuckDB
+- `04_generate_pmtiles.py` — Generate PMTiles (requires tippecanoe + pmtiles on PATH)
+- `05_multi_run_comparison.py` — Compare results across tifton and castro projects
 
 ## Testing
 

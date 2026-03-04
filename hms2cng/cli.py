@@ -1,4 +1,4 @@
-"""hmscmdr-parquet: CLI for exporting HEC-HMS geometry/results to GeoParquet and PMTiles."""
+"""hms2cng: CLI for exporting HEC-HMS geometry/results to GeoParquet and PMTiles."""
 
 from pathlib import Path
 from typing import Optional
@@ -37,7 +37,7 @@ def export_geometry(
 ):
     """Export HEC-HMS basin geometry to GeoParquet."""
 
-    from hmscmdr_parquet.geometry import export_basin_geometry
+    from hms2cng.geometry import export_basin_geometry
 
     console.print(f"[bold blue]Exporting geometry:[/bold blue] {basin_file}")
     try:
@@ -77,7 +77,7 @@ def export_results(
 ):
     """Export HMS results summary statistics to GeoParquet."""
 
-    from hmscmdr_parquet.results import export_hms_results
+    from hms2cng.results import export_hms_results
 
     console.print(f"[bold blue]Exporting results:[/bold blue] {results_dir}")
     console.print(f"[dim]type={element_type}, var={variable}[/dim]")
@@ -104,7 +104,7 @@ def query_parquet(
 ):
     """Query GeoParquet files using DuckDB SQL."""
 
-    from hmscmdr_parquet.duckdb_session import query_parquet as _query
+    from hms2cng.duckdb_session import query_parquet as _query
 
     console.print(f"[bold blue]Querying:[/bold blue] {input_file}")
     try:
@@ -134,7 +134,7 @@ def generate_pmtiles(
 ):
     """Generate PMTiles from GeoParquet."""
 
-    from hmscmdr_parquet.pmtiles import generate_pmtiles_from_input
+    from hms2cng.pmtiles import generate_pmtiles_from_input
 
     console.print(f"[bold blue]Generating PMTiles:[/bold blue] {input_file}")
     try:
@@ -160,7 +160,7 @@ def sync_to_postgis(
 ):
     """Sync GeoParquet data to PostGIS."""
 
-    from hmscmdr_parquet.postgis_sync import sync_to_postgres
+    from hms2cng.postgis_sync import sync_to_postgres
 
     console.print(f"[bold blue]Syncing to PostGIS:[/bold blue] {schema}.{table_name}")
     try:

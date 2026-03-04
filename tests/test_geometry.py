@@ -4,7 +4,7 @@ from pathlib import Path
 
 import geopandas as gpd
 
-from hmscmdr_parquet.geometry import get_basin_layer_gdf, export_basin_geometry
+from hms2cng.geometry import get_basin_layer_gdf, export_basin_geometry
 
 
 def _write_minimal_basin(path: Path) -> None:

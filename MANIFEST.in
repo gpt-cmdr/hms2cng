@@ -1,0 +1,19 @@
+include README.md
+include LICENSE
+include pyproject.toml
+
+recursive-include hms2cng *.py
+recursive-include examples *.py
+
+prune .venv
+prune .claude
+prune agent_tasks
+prune out
+
+global-exclude __pycache__
+global-exclude *.py[cod]
+global-exclude *.egg-info
+global-exclude .DS_Store
+global-exclude *.basin
+global-exclude *.results
+global-exclude *.dss

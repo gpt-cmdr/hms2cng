@@ -1,4 +1,4 @@
-"""hmscmdr-parquet results utilities.
+"""hms2cng results utilities.
 
 The scaffold initially assumed a stateful `HmsResults` object + a `get_time_series()` API.
 In hms-commander v0.2+, results access is largely *static* and DSS reading requires
@@ -23,7 +23,7 @@ import xml.etree.ElementTree as ET
 import geopandas as gpd
 import pandas as pd
 
-from hmscmdr_parquet.geometry import get_basin_layer_gdf
+from hms2cng.geometry import get_basin_layer_gdf
 
 
 ElementType = Literal["subbasin", "reach", "junction", "diversion", "reservoir", "source", "sink", "all"]

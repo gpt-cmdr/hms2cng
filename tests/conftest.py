@@ -1,4 +1,4 @@
-"""Shared pytest configuration for hmscmdr-parquet-cli tests."""
+"""Shared pytest configuration for hms2cng tests."""
 
 import json
 from pathlib import Path

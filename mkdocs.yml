@@ -1,0 +1,78 @@
+site_name: hms2cng — HMS to Cloud Native GIS
+site_description: CLI tool for exporting HEC-HMS results to GeoParquet, PMTiles, and PostGIS
+site_author: William Katzenmeyer, P.E., C.F.M.
+site_url: https://gpt-cmdr.github.io/hms2cng/
+
+repo_name: gpt-cmdr/hms2cng
+repo_url: https://github.com/gpt-cmdr/hms2cng
+
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - scheme: default
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - scheme: slate
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.expand
+    - navigation.top
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.code.annotate
+
+plugins:
+  - search
+  - mkdocstrings:
+      default_handler: python
+      handlers:
+        python:
+          paths: [.]
+          options:
+            docstring_style: google
+            show_source: true
+            show_root_heading: true
+            members_order: source
+  - git-revision-date-localized:
+      enable_creation_date: true
+      type: date
+
+markdown_extensions:
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - admonition
+  - pymdownx.details
+  - tables
+  - toc:
+      permalink: true
+  - attr_list
+  - md_in_html
+
+nav:
+  - Home: index.md
+  - Getting Started:
+    - Installation: getting-started/installation.md
+    - Quick Start: getting-started/quickstart.md
+  - Data Reference: data-reference.md
+  - Example Notebooks:
+    - Overview: examples/index.md
+  - API Reference:
+    - Overview: api/index.md
+  - Roadmap: roadmap.md

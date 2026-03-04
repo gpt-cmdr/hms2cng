@@ -19,8 +19,8 @@ from typing import Any
 import pandas as pd
 import pytest
 
-from hmscmdr_parquet.geometry import export_basin_geometry
-from hmscmdr_parquet.results import export_hms_results
+from hms2cng.geometry import export_basin_geometry
+from hms2cng.results import export_hms_results
 
 # ---------------------------------------------------------------------------
 # Constants

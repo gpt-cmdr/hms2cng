@@ -1,4 +1,4 @@
-"""PMTiles generation for hmscmdr-parquet.
+"""PMTiles generation for hms2cng.
 
 Notes
 -----
@@ -127,8 +127,8 @@ def generate_watershed_overview(
     This is a convenience function; real-world styling is usually done downstream.
     """
 
-    from hmscmdr_parquet.geometry import export_basin_geometry
-    from hmscmdr_parquet.results import export_hms_results
+    from hms2cng.geometry import export_basin_geometry
+    from hms2cng.results import export_hms_results
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)

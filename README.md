@@ -1,4 +1,4 @@
-# hmscmdr-parquet-cli
+# hms2cng — HMS to Cloud Native GIS
 
 CLI tool for exporting HEC-HMS results to **GeoParquet**, querying with **DuckDB**, and generating **PMTiles** for web visualization.
 
@@ -8,16 +8,16 @@ Built on top of [`hms-commander`](https://github.com/gpt-cmdr/hms-commander).
 
 ```bash
 # Base installation (GeoParquet export only)
-pip install hmscmdr-parquet-cli
+pip install hms2cng
 
 # With DuckDB support
-pip install hmscmdr-parquet-cli[duckdb]
+pip install "hms2cng[duckdb]"
 
 # With PostGIS sync
-pip install hmscmdr-parquet-cli[postgis]
+pip install "hms2cng[postgis]"
 
 # All features
-pip install hmscmdr-parquet-cli[all]
+pip install "hms2cng[all]"
 ```
 
 ### PMTiles Generation
@@ -34,43 +34,43 @@ On Windows, these are easiest to install via WSL or conda-forge.
 
 ```bash
 # From basin model file (exports subbasins by default)
-hmscmdr-parquet geometry model.basin subbasins.parquet
+hms2cng geometry model.basin subbasins.parquet
 
 # Specific layer (subbasins, reaches, junctions, watershed)
-hmscmdr-parquet geometry model.basin reaches.parquet --layer reaches
+hms2cng geometry model.basin reaches.parquet --layer reaches
 
 # With explicit CRS (recommended for reprojection to WGS84)
-hmscmdr-parquet geometry model.basin subbasins.parquet --crs EPSG:2278 --out-crs EPSG:4326
+hms2cng geometry model.basin subbasins.parquet --crs EPSG:2278 --out-crs EPSG:4326
 ```
 
 ### Export Results
 
 ```bash
 # Export peak outflow statistics from HMS results folder
-hmscmdr-parquet results ./results/ subbasin_flow.parquet \
+hms2cng results ./results/ subbasin_flow.parquet \
     --type subbasin \
     --var "Flow Out"
 
 # All element types
-hmscmdr-parquet results ./results/ all_results.parquet --type all
+hms2cng results ./results/ all_results.parquet --type all
 
 # Stage instead of flow
-hmscmdr-parquet results ./results/ stage.parquet --type reach --var Stage
+hms2cng results ./results/ stage.parquet --type reach --var Stage
 ```
 
 ### Query with DuckDB
 
 ```bash
 # Filter by peak flow threshold
-hmscmdr-parquet query subbasin_flow.parquet \
+hms2cng query subbasin_flow.parquet \
     "SELECT * FROM _ WHERE max_value > 1000 ORDER BY max_value DESC"
 
 # Time of peak analysis
-hmscmdr-parquet query subbasin_flow.parquet \
+hms2cng query subbasin_flow.parquet \
     "SELECT name, max_value, time_of_max, units FROM _ WHERE max_value > 500"
 
 # Save results to file
-hmscmdr-parquet query subbasin_flow.parquet \
+hms2cng query subbasin_flow.parquet \
     "SELECT * FROM _ WHERE max_value > 1000" \
     --output high_flow_subbasins.parquet
 ```
@@ -79,7 +79,7 @@ hmscmdr-parquet query subbasin_flow.parquet \
 
 ```bash
 # From GeoParquet (requires tippecanoe + pmtiles CLI)
-hmscmdr-parquet pmtiles subbasins.parquet subbasins.pmtiles \
+hms2cng pmtiles subbasins.parquet subbasins.pmtiles \
     --layer subbasins \
     --min-zoom 8 \
     --max-zoom 14
@@ -89,7 +89,7 @@ hmscmdr-parquet pmtiles subbasins.parquet subbasins.pmtiles \
 
 ```bash
 # Upload to PostGIS
-hmscmdr-parquet sync subbasins.parquet \
+hms2cng sync subbasins.parquet \
     "postgresql://user:pass@192.168.3.30:5432/gis_data" \
     hms_subbasins \
     --schema uberclaw
@@ -98,7 +98,7 @@ hmscmdr-parquet sync subbasins.parquet \
 ## Python API
 
 ```python
-from hmscmdr_parquet import (
+from hms2cng import (
     export_basin_geometry,
     export_hms_results,
     DuckSession,
@@ -144,16 +144,16 @@ The [Tifton HMS example project](https://github.com/gpt-cmdr/hms-commander/tree/
 set TIFTON=C:\GH\hms-commander\hms_example_projects\tifton
 
 # Export subbasin geometry
-hmscmdr-parquet geometry %TIFTON%\Tifton.basin tifton_subbasins.parquet --layer subbasins
+hms2cng geometry %TIFTON%\Tifton.basin tifton_subbasins.parquet --layer subbasins
 
 # Export peak outflow results
-hmscmdr-parquet results %TIFTON%\results tifton_outflow.parquet --type subbasin --var Outflow
+hms2cng results %TIFTON%\results tifton_outflow.parquet --type subbasin --var Outflow
 
 # Query for high flows
-hmscmdr-parquet query tifton_outflow.parquet "SELECT name, max_value, time_of_max FROM _ WHERE max_value > 500"
+hms2cng query tifton_outflow.parquet "SELECT name, max_value, time_of_max FROM _ WHERE max_value > 500"
 
 # Sync to PostGIS
-hmscmdr-parquet sync tifton_subbasins.parquet "postgresql://uberclaw:pass@192.168.3.30:5432/gis_data" tifton_subbasins --schema uberclaw
+hms2cng sync tifton_subbasins.parquet "postgresql://uberclaw:pass@192.168.3.30:5432/gis_data" tifton_subbasins --schema uberclaw
 ```
 
 ## Architecture
@@ -200,18 +200,15 @@ DuckDB          PostGIS
 
 ```bash
 # Clone and install in dev mode
-git clone https://github.com/gpt-cmdr/hmscmdr-parquet-cli
-cd hmscmdr-parquet-cli
-pip install -e ".[all]"
+git clone https://github.com/gpt-cmdr/hms2cng
+cd hms2cng
+uv pip install -e ".[all]"
 
 # Run tests
-pytest tests/
+uv run pytest tests/
 
 # Build package
-python -m build
-
-# Publish to PyPI
-python -m twine upload dist/*
+uv run python -m build
 ```
 
 ## License
@@ -220,5 +217,5 @@ MIT - See LICENSE file
 
 ## Author
 
-William M. Katzenmeyer, P.E., C.F.M.  
+William M. Katzenmeyer, P.E., C.F.M.
 CLB Engineering Corporation

@@ -1,5 +1,5 @@
 """
-PostGIS sync functions for hmscmdr-parquet
+PostGIS sync functions for hms2cng
 """
 from pathlib import Path
 from sqlalchemy import create_engine, text
@@ -130,8 +130,8 @@ def sync_watershed_to_postgis(
     - {schema}.hms_reach_results (results with run_id)
     """
     import tempfile
-    from hmscmdr_parquet.geometry import export_basin_geometry
-    from hmscmdr_parquet.results import export_hms_results
+    from hms2cng.geometry import export_basin_geometry
+    from hms2cng.results import export_hms_results
     
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)

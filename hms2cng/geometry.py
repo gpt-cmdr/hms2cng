@@ -1,4 +1,4 @@
-"""hmscmdr-parquet geometry utilities.
+"""hms2cng geometry utilities.
 
 This module intentionally uses the *public* hms-commander API (v0.2+).
 The earlier scaffold referenced non-existent symbols (HmsProject, hms_commander.geometry).*.
