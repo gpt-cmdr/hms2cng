@@ -8,8 +8,29 @@ repo_url: https://github.com/gpt-cmdr/hms2cng
 
 docs_dir: docs
 
+copyright: Copyright &copy; 2024-2026 CLB Engineering Corporation
+
+extra_css:
+  - stylesheets/clb-branding.css
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/gpt-cmdr/hms2cng
+      name: hms2cng on GitHub
+    - icon: fontawesome/solid/building
+      link: https://clbengineering.com/
+      name: CLB Engineering Corporation
+    - icon: fontawesome/solid/lightbulb
+      link: https://clbengineering.com/llm-forward
+      name: LLM Forward Engineering
+  generator: false
+
 theme:
   name: material
+  custom_dir: docs/overrides
+  logo: assets/hms2cng_logo.svg
+  favicon: assets/hms2cng_logo.svg
   palette:
     - scheme: default
       primary: teal
@@ -76,3 +97,5 @@ nav:
   - API Reference:
     - Overview: api/index.md
   - Roadmap: roadmap.md
+  - About:
+      - CLB Engineering: about/clb-engineering.md
