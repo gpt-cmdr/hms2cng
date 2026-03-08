@@ -73,6 +73,29 @@ def _maybe_to_crs(gdf: gpd.GeoDataFrame, out_crs: Optional[str]) -> gpd.GeoDataF
     return gdf.to_crs(out_crs)
 
 
+def _hilbert_sort(gdf: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    """Sort rows by Hilbert curve index of geometry centroid.
+
+    Falls back to original order if DuckDB is unavailable or geometry is empty.
+    """
+    try:
+        import warnings
+        import duckdb
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", UserWarning)
+            centroids = gdf.geometry.centroid
+        temp = pd.DataFrame({"_x": centroids.x, "_y": centroids.y, "_idx": range(len(gdf))})
+        con = duckdb.connect()
+        order = con.execute(
+            "SELECT _idx FROM temp ORDER BY hilbert_encode([_x, _y]::DOUBLE[2])"
+        ).fetchdf()
+        con.close()
+        return gdf.iloc[order["_idx"].values].reset_index(drop=True)
+    except Exception:
+        return gdf
+
+
 def get_basin_layer_gdf(
     basin_input: Path,
     layer: LayerName = "subbasins",
@@ -311,7 +334,7 @@ def export_basin_geometry(
         out_crs=out_crs,
     )
 
-    gdf.to_parquet(output, compression="snappy")
+    gdf.to_parquet(output, compression="zstd")
 
 
 def extract_watershed_boundary(
@@ -330,3 +353,152 @@ def extract_watershed_boundary(
         crs_epsg=crs_epsg,
         out_crs=out_crs,
     )
+
+
+def _add_provenance(
+    gdf: gpd.GeoDataFrame,
+    *,
+    project_name: str,
+    basin_model: Optional[str] = None,
+) -> gpd.GeoDataFrame:
+    """Add project_name (and optionally basin_model) tracking columns."""
+    gdf = gdf.copy()
+    gdf["project_name"] = project_name
+    if basin_model is not None:
+        gdf["basin_model"] = basin_model
+    return gdf
+
+
+_DEFAULT_LAYERS = [
+    "subbasins",
+    "junctions",
+    "reaches",
+    "watershed",
+    "subbasin_polygons",
+    "longest_flowpaths",
+]
+
+
+def export_all_basin_geometry(
+    hms_file: Path,
+    output_dir: Path,
+    *,
+    layers: Optional[list] = None,
+    out_crs: Optional[str] = "EPSG:4326",
+    skip_errors: bool = True,
+) -> list:
+    """Export geometry for ALL basin models in an HMS project.
+
+    Output: output_dir/{basin_slug}/{layer}.parquet
+    Each file gains 'project_name' and 'basin_model' columns.
+
+    Args:
+        hms_file: Path to the .hms project file or project directory.
+        output_dir: Root output directory (geometry files go in subdirs per basin).
+        layers: Geometry layers to attempt. Defaults to
+            ["subbasins", "junctions", "reaches", "watershed",
+             "subbasin_polygons", "longest_flowpaths"].
+        out_crs: Output CRS (default EPSG:4326).
+        skip_errors: If True, skip layers that fail; otherwise raise.
+
+    Returns:
+        List of Path objects for created parquet files.
+    """
+    from hms2cng.project import _find_hms_file, _init_project, slugify
+
+    hms_file = _find_hms_file(Path(hms_file))
+    output_dir = Path(output_dir)
+    layers_to_try = layers if layers is not None else _DEFAULT_LAYERS
+
+    prj = _init_project(hms_file)
+    project_name = prj.project_name
+    created: list = []
+
+    for _, basin_row in prj.basin_df.iterrows():
+        basin_name = basin_row.get("name", "")
+        basin_file_path = Path(basin_row.get("full_path", ""))
+        if not basin_file_path.is_file():
+            if skip_errors:
+                continue
+            raise FileNotFoundError(f"Basin file not found: {basin_file_path}")
+
+        slug = slugify(basin_name)
+        basin_out_dir = output_dir / slug
+        basin_out_dir.mkdir(parents=True, exist_ok=True)
+
+        for layer in layers_to_try:
+            out_path = basin_out_dir / f"{layer}.parquet"
+            try:
+                gdf = get_basin_layer_gdf(
+                    basin_file_path,
+                    layer=layer,  # type: ignore[arg-type]
+                    out_crs=out_crs,
+                )
+                gdf = _add_provenance(gdf, project_name=project_name, basin_model=basin_name)
+                gdf.to_parquet(out_path, compression="zstd")
+                created.append(out_path)
+            except (ValueError, FileNotFoundError):
+                # Layer not available for this basin — skip silently
+                continue
+            except Exception:
+                if skip_errors:
+                    continue
+                raise
+
+    return created
+
+
+ALL_LAYERS: list[str] = [
+    "subbasins", "junctions", "reaches", "diversions", "reservoirs", "sources", "sinks",
+    "watershed", "subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
+    "teneightyfive_flowpaths", "subbasin_statistics",
+]
+
+
+def merge_all_layers(
+    basin_file: Path,
+    *,
+    layers: Optional[list[str]] = None,
+    crs_epsg: Optional[str] = None,
+    out_crs: Optional[str] = "EPSG:4326",
+    project_name: Optional[str] = None,
+    basin_model: Optional[str] = None,
+    sort: bool = True,
+) -> Optional[gpd.GeoDataFrame]:
+    """Merge all geometry layers for a basin into a single GeoDataFrame.
+
+    Each row gets a ``layer`` column identifying its source layer.
+    Layers that raise ValueError or FileNotFoundError are silently skipped.
+
+    Returns None if no layers could be extracted.
+    """
+    layers_to_try = layers if layers is not None else ALL_LAYERS
+    all_gdfs: list[gpd.GeoDataFrame] = []
+    crs = None
+
+    for layer_name in layers_to_try:
+        try:
+            gdf = get_basin_layer_gdf(
+                basin_file, layer=layer_name, crs_epsg=crs_epsg, out_crs=out_crs,
+            )
+        except (ValueError, FileNotFoundError):
+            continue
+        gdf = gdf.copy()
+        gdf["layer"] = layer_name
+        if project_name is not None:
+            gdf["project_name"] = project_name
+        if basin_model is not None:
+            gdf["basin_model"] = basin_model
+        if sort:
+            gdf = _hilbert_sort(gdf)
+        if crs is None and gdf.crs is not None:
+            crs = gdf.crs
+        all_gdfs.append(gdf)
+
+    if not all_gdfs:
+        return None
+
+    merged = gpd.GeoDataFrame(pd.concat(all_gdfs, ignore_index=True), geometry="geometry")
+    if crs is not None:
+        merged = merged.set_crs(crs, allow_override=True)
+    return merged

@@ -254,7 +254,7 @@ def export_hms_results(
 
     if basin_file is None:
         # No geometry available; write plain Parquet.
-        stats_df.to_parquet(output, compression="snappy", index=False)
+        stats_df.to_parquet(output, compression="zstd", index=False)
         return
 
     # Build geometry for the requested element type(s)
@@ -273,13 +273,13 @@ def export_hms_results(
             layers.append(geom)
         if not layers:
             # fallback without geometry
-            stats_df.to_parquet(output, compression="snappy", index=False)
+            stats_df.to_parquet(output, compression="zstd", index=False)
             return
         geom_gdf = pd.concat(layers, ignore_index=True)
         geom_gdf = gpd.GeoDataFrame(geom_gdf, geometry="geometry", crs=layers[0].crs)
 
         merged = geom_gdf.merge(stats_df, on=["name", "element_type"], how="left")
-        merged.to_parquet(output, compression="snappy")
+        merged.to_parquet(output, compression="zstd")
         return
 
     # single element type
@@ -291,7 +291,7 @@ def export_hms_results(
     geom_gdf = get_basin_layer_gdf(basin_file, layer=layer_map[et], crs_epsg=crs_epsg, out_crs=out_crs)
 
     merged = geom_gdf.merge(stats_df, on="name", how="left")
-    merged.to_parquet(output, compression="snappy")
+    merged.to_parquet(output, compression="zstd")
 
 
 def export_peak_flow_summary(
@@ -311,3 +311,275 @@ def export_peak_flow_summary(
         crs_epsg=crs_epsg,
         out_crs=out_crs,
     )
+
+
+def export_all_results(
+    hms_file: Path,
+    output_dir: Path,
+    *,
+    variables: Optional[list] = None,
+    out_crs: Optional[str] = "EPSG:4326",
+    skip_errors: bool = True,
+) -> tuple:
+    """Export results for ALL runs in an HMS project.
+
+    Output: output_dir/{run_slug}/{variable_slug}.parquet
+    Each file is enriched with: project_name, run_name, basin_model,
+    met_model, control_spec, start_date, end_date, time_interval_minutes.
+
+    Args:
+        hms_file: Path to the .hms project file or project directory.
+        output_dir: Root output directory (results go in per-run subdirs).
+        variables: Result variables to export. Defaults to ["Outflow"].
+        out_crs: Output CRS (default EPSG:4326).
+        skip_errors: If True, skip runs/variables that fail; otherwise raise.
+
+    Returns:
+        Tuple of (created_paths: list[Path], errors: list[str]).
+    """
+    import re
+    from hms2cng.project import _find_hms_file, _init_project, slugify, _find_results_xml_for_run
+
+    hms_file = _find_hms_file(Path(hms_file))
+    output_dir = Path(output_dir)
+    vars_to_export = variables if variables is not None else ["Outflow"]
+
+    prj = _init_project(hms_file)
+    project_name = prj.project_name
+    project_dir = hms_file.parent
+
+    # Build control lookup: control_spec name -> row
+    ctrl_lookup: dict = {}
+    if not prj.control_df.empty:
+        for _, cr in prj.control_df.iterrows():
+            ctrl_lookup[cr.get("name", "")] = cr
+
+    created: list = []
+    errors: list = []
+
+    for _, run_row in prj.run_df.iterrows():
+        run_name = run_row.get("name", "")
+        basin_model = run_row.get("basin_model", "")
+        met_model = run_row.get("met_model", "")
+        control_spec = run_row.get("control_spec", "")
+        run_slug = slugify(run_name)
+
+        # Locate results XML
+        results_xml = _find_results_xml_for_run(project_dir, run_name)
+        if results_xml is None:
+            errors.append(f"No results XML found for run: {run_name!r}")
+            continue
+
+        # Control window metadata
+        start_date = end_date = time_interval_minutes = None
+        if control_spec in ctrl_lookup:
+            cr = ctrl_lookup[control_spec]
+            start_date = cr.get("start_date")
+            end_date = cr.get("end_date")
+            time_interval_minutes = cr.get("time_interval_minutes")
+
+        # Find basin file for geometry
+        basin_file: Optional[Path] = None
+        if not prj.basin_df.empty:
+            match = prj.basin_df[prj.basin_df["name"] == basin_model]
+            if not match.empty:
+                bp = Path(match.iloc[0].get("full_path", ""))
+                if bp.is_file():
+                    basin_file = bp
+
+        run_out_dir = output_dir / run_slug
+        run_out_dir.mkdir(parents=True, exist_ok=True)
+
+        for variable in vars_to_export:
+            var_slug = re.sub(r"[^\w]", "_", variable.strip()).lower()
+            out_path = run_out_dir / f"{var_slug}.parquet"
+            try:
+                stats_df = _parse_results_xml_statistics(
+                    results_xml,
+                    element_type="all",
+                    variable=variable,
+                )
+            except (ValueError, FileNotFoundError) as exc:
+                errors.append(f"run={run_name!r}, var={variable!r}: {exc}")
+                if not skip_errors:
+                    raise
+                continue
+            except Exception as exc:
+                errors.append(f"run={run_name!r}, var={variable!r}: {exc}")
+                if not skip_errors:
+                    raise
+                continue
+
+            # Enrich with lineage columns
+            for col, val in [
+                ("project_name", project_name),
+                ("run_name", run_name),
+                ("basin_model", basin_model),
+                ("met_model", met_model),
+                ("control_spec", control_spec),
+                ("start_date", start_date),
+                ("end_date", end_date),
+                ("time_interval_minutes", time_interval_minutes),
+            ]:
+                stats_df[col] = val
+
+            # Merge geometry if available
+            if basin_file is not None:
+                layer_map = {
+                    "subbasin": "subbasins", "junction": "junctions", "reach": "reaches",
+                    "diversion": "diversions", "reservoir": "reservoirs",
+                    "source": "sources", "sink": "sinks",
+                }
+                geo_parts = []
+                for et, lyr in layer_map.items():
+                    subset = stats_df[stats_df["element_type"] == et].copy()
+                    if subset.empty:
+                        continue
+                    try:
+                        geom_gdf = get_basin_layer_gdf(
+                            basin_file, layer=lyr, out_crs=out_crs  # type: ignore[arg-type]
+                        )
+                        merged = geom_gdf.merge(
+                            subset.drop(columns=["element_type"], errors="ignore"),
+                            on="name",
+                            how="inner",
+                        )
+                        if not merged.empty:
+                            merged["element_type"] = et
+                            geo_parts.append(merged)
+                    except Exception:
+                        # Layer not available: keep stats without geometry
+                        geo_parts.append(subset)
+
+                if geo_parts:
+                    import geopandas as gpd
+                    # Combine: some parts may be plain DataFrames (no geometry)
+                    geo_gdfs = [p for p in geo_parts if isinstance(p, gpd.GeoDataFrame)]
+                    plain_dfs = [p for p in geo_parts if not isinstance(p, gpd.GeoDataFrame)]
+                    if geo_gdfs:
+                        combined = gpd.GeoDataFrame(
+                            pd.concat(geo_gdfs + plain_dfs, ignore_index=True),
+                            geometry="geometry",
+                            crs=geo_gdfs[0].crs,
+                        )
+                        combined.to_parquet(out_path, compression="zstd")
+                    else:
+                        pd.concat(plain_dfs, ignore_index=True).to_parquet(
+                            out_path, compression="zstd", index=False
+                        )
+                else:
+                    stats_df.to_parquet(out_path, compression="zstd", index=False)
+            else:
+                stats_df.to_parquet(out_path, compression="zstd", index=False)
+
+            created.append(out_path)
+
+    return created, errors
+
+
+_AVAILABLE_VARIABLES: list[str] = ["Outflow", "Inflow", "Stage", "Depth"]
+
+
+def merge_all_variables(
+    results_xml: Path,
+    basin_file: Optional[Path] = None,
+    *,
+    variables: Optional[list[str]] = None,
+    out_crs: Optional[str] = "EPSG:4326",
+    project_name: Optional[str] = None,
+    run_name: Optional[str] = None,
+    basin_model: Optional[str] = None,
+    met_model: Optional[str] = None,
+    control_spec: Optional[str] = None,
+    start_date=None,
+    end_date=None,
+    time_interval_minutes=None,
+) -> Optional[gpd.GeoDataFrame]:
+    """Merge all result variables for a run into a single GeoDataFrame.
+
+    Each row gets a ``layer`` column with the snake_case variable name
+    (e.g. ``outflow``, ``stage``). Variables that raise ValueError or
+    FileNotFoundError are silently skipped.
+
+    Returns None if no variables could be parsed.
+    """
+    vars_to_try = variables if variables is not None else _AVAILABLE_VARIABLES
+
+    layer_map = {
+        "subbasin": "subbasins", "junction": "junctions", "reach": "reaches",
+        "diversion": "diversions", "reservoir": "reservoirs",
+        "source": "sources", "sink": "sinks",
+    }
+
+    all_parts: list = []
+
+    for variable in vars_to_try:
+        try:
+            stats_df = _parse_results_xml_statistics(
+                results_xml, element_type="all", variable=variable,
+            )
+        except (ValueError, FileNotFoundError):
+            continue
+
+        var_slug = re.sub(r"[^\w]", "_", variable.strip()).lower()
+
+        # Merge with geometry if basin file available
+        if basin_file is not None:
+            geo_chunks: list = []
+            for et, lyr in layer_map.items():
+                subset = stats_df[stats_df["element_type"] == et].copy()
+                if subset.empty:
+                    continue
+                try:
+                    geom_gdf = get_basin_layer_gdf(basin_file, layer=lyr, out_crs=out_crs)
+                    merged = geom_gdf.merge(
+                        subset.drop(columns=["element_type"], errors="ignore"),
+                        on="name", how="inner",
+                    )
+                    if not merged.empty:
+                        merged["element_type"] = et
+                        geo_chunks.append(merged)
+                except Exception:
+                    geo_chunks.append(subset)
+
+            if geo_chunks:
+                geo_gdfs = [p for p in geo_chunks if isinstance(p, gpd.GeoDataFrame)]
+                plain_dfs = [p for p in geo_chunks if not isinstance(p, gpd.GeoDataFrame)]
+                if geo_gdfs:
+                    combined = gpd.GeoDataFrame(
+                        pd.concat(geo_gdfs + plain_dfs, ignore_index=True),
+                        geometry="geometry", crs=geo_gdfs[0].crs,
+                    )
+                else:
+                    combined = pd.concat(plain_dfs, ignore_index=True)
+            else:
+                combined = stats_df
+        else:
+            combined = stats_df
+
+        combined = combined.copy()
+        combined["layer"] = var_slug
+
+        for col, val in [
+            ("project_name", project_name),
+            ("run_name", run_name),
+            ("basin_model", basin_model),
+            ("met_model", met_model),
+            ("control_spec", control_spec),
+            ("start_date", start_date),
+            ("end_date", end_date),
+            ("time_interval_minutes", time_interval_minutes),
+        ]:
+            if val is not None:
+                combined[col] = val
+
+        all_parts.append(combined)
+
+    if not all_parts:
+        return None
+
+    result = pd.concat(all_parts, ignore_index=True)
+    geo_parts = [p for p in all_parts if isinstance(p, gpd.GeoDataFrame)]
+    if geo_parts:
+        result = gpd.GeoDataFrame(result, geometry="geometry", crs=geo_parts[0].crs)
+    return result

@@ -171,5 +171,125 @@ def sync_to_postgis(
         raise typer.Exit(1)
 
 
+@app.command("manifest")
+def show_manifest(
+    hms_file: Path = typer.Argument(..., help="HEC-HMS project file (.hms) or project directory"),
+    output_dir: Optional[Path] = typer.Option(
+        None, "--output", "-o", help="If provided, write manifest parquet files here"
+    ),
+):
+    """Show (or export) the project manifest: runs, basin models, met models."""
+
+    from hms2cng.project import _find_hms_file, _init_project, _find_results_xml_for_run
+
+    try:
+        hms_path = _find_hms_file(Path(hms_file))
+        prj = _init_project(hms_path)
+    except Exception as e:
+        console.print(f"[red]ERROR[/red] {e}")
+        raise typer.Exit(1)
+
+    from rich.table import Table
+
+    # --- Run table ---
+    run_table = Table(title=f"Runs — {prj.project_name}", show_lines=False)
+    run_table.add_column("Run Name", style="bold")
+    run_table.add_column("Basin Model")
+    run_table.add_column("Met Model")
+    run_table.add_column("Control Spec")
+    run_table.add_column("Has Results", justify="center")
+
+    for _, row in prj.run_df.iterrows():
+        run_name = row.get("name", "")
+        results_xml = _find_results_xml_for_run(hms_path.parent, run_name)
+        run_table.add_row(
+            run_name,
+            row.get("basin_model", ""),
+            row.get("met_model", ""),
+            row.get("control_spec", ""),
+            "[green]yes[/green]" if results_xml else "[dim]no[/dim]",
+        )
+
+    console.print(run_table)
+    console.print(
+        f"[dim]{len(prj.basin_df)} basin model(s), "
+        f"{len(prj.met_df)} met model(s), "
+        f"{len(prj.run_df)} run(s)[/dim]"
+    )
+
+    if output_dir is not None:
+        from hms2cng.project import export_project_manifest
+
+        try:
+            mp, rp, bp = export_project_manifest(hms_file, output_dir)
+            console.print(f"[green]OK[/green] manifest    → {mp}")
+            console.print(f"[green]OK[/green] run_registry → {rp}")
+            console.print(f"[green]OK[/green] basin_inventory → {bp}")
+        except Exception as e:
+            console.print(f"[red]ERROR[/red] {e}")
+            raise typer.Exit(1)
+
+
+@app.command("project")
+def export_project(
+    hms_file: Path = typer.Argument(..., help="HEC-HMS project file (.hms) or project directory"),
+    output_dir: Path = typer.Argument(..., help="Output directory for consolidated archive"),
+    layers: Optional[str] = typer.Option(
+        None, "--layers",
+        help="Comma-separated geometry layers (default: all available)"
+    ),
+    variables: Optional[str] = typer.Option(
+        None, "--vars",
+        help="Comma-separated result variables (default: Outflow,Inflow,Stage,Depth)"
+    ),
+    out_crs: str = typer.Option("EPSG:4326", "--out-crs", help="Output CRS"),
+    skip_errors: bool = typer.Option(True, "--skip-errors/--fail-fast"),
+    no_sort: bool = typer.Option(False, "--no-sort", help="Disable Hilbert spatial sorting"),
+):
+    """Export an entire HMS project to a single consolidated GeoParquet."""
+
+    from hms2cng.project import export_full_project
+
+    layer_list = [s.strip() for s in layers.split(",")] if layers else None
+    var_list = [s.strip() for s in variables.split(",")] if variables else None
+
+    console.print(f"[bold blue]Exporting project:[/bold blue] {hms_file}")
+    console.print(f"[dim]output -> {output_dir}[/dim]")
+
+    try:
+        summary = export_full_project(
+            hms_file,
+            output_dir,
+            layers=layer_list,
+            variables=var_list,
+            out_crs=out_crs,
+            skip_errors=skip_errors,
+            sort=not no_sort,
+        )
+    except Exception as e:
+        console.print(f"[red]ERROR[/red] {e}")
+        raise typer.Exit(1)
+
+    from rich.table import Table
+
+    result_table = Table(title="Export Summary", show_lines=False)
+    result_table.add_column("Category", style="bold")
+    result_table.add_column("Count", justify="right")
+    result_table.add_row("Geometry rows", str(summary["geometry_rows"]))
+    result_table.add_row("Results rows", str(summary["results_rows"]))
+    result_table.add_row("Errors", str(len(summary["errors"])))
+    console.print(result_table)
+
+    if summary["errors"]:
+        console.print("[yellow]Errors:[/yellow]")
+        for err in summary["errors"]:
+            console.print(f"  [dim]{err}[/dim]")
+
+    if summary["parquet_file"]:
+        console.print(f"[green]OK[/green] Parquet: {summary['parquet_file']}")
+    if summary["manifest_json"]:
+        console.print(f"[green]OK[/green] Manifest: {summary['manifest_json']}")
+
+
 if __name__ == "__main__":
     app()

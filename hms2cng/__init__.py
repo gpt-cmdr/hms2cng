@@ -12,9 +12,10 @@ Built on hms-commander (https://github.com/gpt-cmdr/hms-commander).
 
 __author__ = "CLB Engineering Corporation"
 
-from hms2cng.geometry import export_basin_geometry, extract_watershed_boundary, export_all_basin_geometry
-from hms2cng.results import export_hms_results, export_peak_flow_summary, export_all_results
+from hms2cng.geometry import export_basin_geometry, extract_watershed_boundary, export_all_basin_geometry, merge_all_layers
+from hms2cng.results import export_hms_results, export_peak_flow_summary, export_all_results, merge_all_variables
 from hms2cng.project import get_project_manifest, export_project_manifest, export_full_project
+from hms2cng.catalog import Manifest, ManifestLayer
 from hms2cng.duckdb_session import DuckSession, query_parquet, spatial_join
 from hms2cng.pmtiles import generate_pmtiles_from_input, generate_watershed_overview
 from hms2cng.postgis_sync import sync_to_postgres, read_from_postgres, sync_watershed_to_postgis
@@ -29,9 +30,14 @@ __all__ = [
     # Full-project exports (new)
     "export_all_basin_geometry",
     "export_all_results",
+    "merge_all_layers",
+    "merge_all_variables",
     "get_project_manifest",
     "export_project_manifest",
     "export_full_project",
+    # Catalog
+    "Manifest",
+    "ManifestLayer",
     # DuckDB
     "DuckSession",
     "query_parquet",

@@ -57,11 +57,40 @@ HMS model files (.basin, .results XML)
       → pmtiles.py             (vector tiles for web viz)
 ```
 
-**cli.py** — Typer CLI app exposing five commands: `geometry`, `results`, `query`, `pmtiles`, `sync`. Uses Rich console with `emoji=False` for Windows SSH compatibility (cp1252 encoding).
+### Consolidated Parquet Archive Format
 
-**geometry.py** — Extracts subbasins (points), reaches (linestrings), junctions (points), and watershed boundaries (polygons) from `.basin` files using `HmsBasin` and `HmsGeo` from hms-commander. Auto-detects CRS from the HMS project, defaults to WGS84/EPSG:4326.
+`export_full_project()` produces a **single GeoParquet** with a `layer` discriminator column:
 
-**results.py** — Parses `RUN_*.results` XML files for summary statistics (peak, min, mean, time of peak). Does NOT read DSS files. Merges statistics with geometry from the basin file. Maps CLI variable names to HMS XML prefixes (e.g., "Flow Out" → "Outflow").
+```
+output_dir/
+├── {project_slug}.parquet    # ALL geometry + results
+└── manifest.json             # JSON catalog (schema v2.0)
+```
+
+The `layer` column discriminates geometry layers (`subbasins`, `reaches`, `junctions`, `watershed`, ...) from result variables (`outflow`, `stage`, `inflow`, `depth`). Query patterns:
+
+```sql
+SELECT * FROM 'project.parquet' WHERE layer = 'subbasins'
+SELECT * FROM 'project.parquet' WHERE layer = 'outflow' AND run_name = 'Run 1'
+SELECT layer, COUNT(*) FROM 'project.parquet' GROUP BY layer
+```
+
+- **Compression**: ZSTD everywhere (replaced snappy)
+- **Per-row bbox columns**: `bbox_xmin`, `bbox_ymin`, `bbox_xmax`, `bbox_ymax` for spatial filtering
+- **Hilbert sorting**: Rows within each layer sorted by Hilbert curve of centroid (via DuckDB) for spatial locality. Disable with `sort=False` or `--no-sort`.
+- **manifest.json**: Schema v2.0 catalog with project metadata, layer inventory, and error log
+
+Individual CLI commands (`geometry`, `results`, `query`, etc.) are unchanged and still produce per-file output.
+
+### Modules
+
+**cli.py** — Typer CLI app exposing commands: `geometry`, `results`, `query`, `pmtiles`, `sync`, `manifest`, `project`. Uses Rich console with `emoji=False` for Windows SSH compatibility (cp1252 encoding).
+
+**geometry.py** — Extracts subbasins (points), reaches (linestrings), junctions (points), and watershed boundaries (polygons) from `.basin` files using `HmsBasin` and `HmsGeo` from hms-commander. Auto-detects CRS from the HMS project, defaults to WGS84/EPSG:4326. `merge_all_layers()` consolidates all geometry layers into a single GeoDataFrame with a `layer` column. `_hilbert_sort()` applies DuckDB-based Hilbert curve sorting.
+
+**results.py** — Parses `RUN_*.results` XML files for summary statistics (peak, min, mean, time of peak). Does NOT read DSS files. Merges statistics with geometry from the basin file. Maps CLI variable names to HMS XML prefixes (e.g., "Flow Out" → "Outflow"). `merge_all_variables()` consolidates all result variables for a run into a single GeoDataFrame.
+
+**catalog.py** — `Manifest` and `ManifestLayer` dataclasses for the manifest.json catalog. Supports create/serialize/load roundtrip.
 
 **duckdb_session.py** — Thin wrapper: `DuckSession` class manages connections with spatial extension pre-loaded. `query_parquet()` and `spatial_join()` are convenience functions.
 
@@ -91,4 +120,4 @@ HMS model files (.basin, .results XML)
 
 ## Testing
 
-Tests create minimal `.basin` and `.results` XML data inline (no fixture files needed). Tests exercise full export pipelines and validate geometry types/values. Currently 4 tests across 2 modules.
+Tests create minimal `.basin` and `.results` XML data inline (no fixture files needed). Tests exercise full export pipelines and validate geometry types/values. Integration tests (marked `@pytest.mark.integration`) use `HmsExamples.extract_project("river_bend")` for real HMS data. Run with `uv run python -m pytest tests/test_project.py tests/test_geometry.py tests/test_results_xml.py -v`.
