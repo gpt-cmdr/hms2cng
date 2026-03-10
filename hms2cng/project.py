@@ -1,13 +1,21 @@
 """hms2cng project-level access and archival.
 
 Transforms hms2cng from a single-layer export tool into a full project
-access and archival system. A single call to export_full_project() exports
-the entire HMS project hierarchy:
-  - manifest.parquet       (1 row: project-level metadata)
-  - run_registry.parquet   (1 row per run: basin + met + control + results lineage)
-  - basin_inventory.parquet (1 row per basin model: element counts + methods)
-  - geometry/{basin_slug}/{layer}.parquet  (all geometry layers for each basin)
-  - results/{run_slug}/{variable_slug}.parquet  (results for each run)
+access and archival system.
+
+``export_full_project()`` produces a **single consolidated GeoParquet** with
+a ``layer`` discriminator column plus a ``manifest.json`` catalog::
+
+    output_dir/
+    ├── {project_slug}.parquet    # ALL geometry + results
+    └── manifest.json             # JSON catalog (schema v2.0)
+
+``export_project_manifest()`` writes three separate registry parquets::
+
+    output_dir/
+    ├── manifest.parquet          # 1 row: project-level metadata
+    ├── run_registry.parquet      # 1 row per run
+    └── basin_inventory.parquet   # 1 row per basin model
 
 All output parquet files include 'project_name' and (where applicable)
 'basin_model' columns for cross-project DuckDB glob queries.

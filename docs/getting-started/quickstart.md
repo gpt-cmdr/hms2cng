@@ -1,6 +1,46 @@
 # Quick Start
 
-## 3-Step Pipeline
+## Full Project Export
+
+Export an entire HMS project to a single consolidated GeoParquet:
+
+```bash
+# Show what's in the project (runs, basin models, met models)
+hms2cng manifest MyProject.hms
+
+# Export everything: all basin geometries + all run results in one file
+hms2cng project MyProject.hms out/
+```
+
+This creates a **single consolidated GeoParquet** with a `layer` discriminator column:
+```
+out/
+  my_project.parquet     # ALL geometry + results (layer column discriminates)
+  manifest.json          # JSON catalog (schema v2.0)
+```
+
+Query specific layers with DuckDB:
+
+```bash
+# All subbasins
+hms2cng query "out/my_project.parquet" \
+  "SELECT * FROM _ WHERE layer = 'subbasins'"
+
+# Peak outflow across all runs
+hms2cng query "out/my_project.parquet" \
+  "SELECT run_name, name, max_value FROM _ WHERE layer = 'outflow' ORDER BY max_value DESC LIMIT 20"
+
+# Layer inventory
+hms2cng query "out/my_project.parquet" \
+  "SELECT layer, COUNT(*) as n FROM _ GROUP BY layer ORDER BY n DESC"
+```
+
+!!! tip "Separate registry parquets"
+    Use `hms2cng manifest MyProject.hms -o out/` to also export `manifest.parquet`, `run_registry.parquet`, and `basin_inventory.parquet` for cross-project DuckDB analytics.
+
+---
+
+## Single-Layer Pipeline
 
 ### Step 1 — Export geometry
 
@@ -31,6 +71,12 @@ Use `_` as the table alias. Results print to console or save to file with `--out
 ```bash
 hms2cng --help
 
+# Full project export (consolidated single parquet + manifest.json)
+hms2cng project PROJECT.hms OUTPUT_DIR/ [--layers L1,L2] [--vars V1,V2] [--out-crs EPSG:4326] [--no-sort]
+
+# Show project manifest (runs, basin models, met models)
+hms2cng manifest PROJECT.hms [-o OUTPUT_DIR]
+
 # Export geometry layer
 hms2cng geometry BASIN_FILE OUTPUT.parquet [--layer LAYER] [--crs EPSG:XXXX] [--out-crs EPSG:4326]
 
@@ -50,27 +96,23 @@ hms2cng sync INPUT.parquet postgresql://user:pass@host/db TABLE_NAME [--schema p
 ## Python API
 
 ```python
-from hms2cng.geometry import export_basin_geometry, get_basin_layer_gdf
-from hms2cng.results import export_hms_results
-from hms2cng.duckdb_session import query_parquet, DuckSession
-from hms2cng.pmtiles import generate_pmtiles_from_input
-from hms2cng.postgis_sync import sync_to_postgres
+from hms2cng import export_full_project, export_basin_geometry, export_hms_results, DuckSession
+from hms2cng.duckdb_session import query_parquet
+from hms2cng.geometry import get_basin_layer_gdf
+
+# Full project export (single consolidated parquet + manifest.json)
+summary = export_full_project("MyProject.hms", "out/")
+print(summary)  # {'parquet_file': ..., 'manifest_json': ..., 'geometry_rows': ..., ...}
 
 # Get GeoDataFrame directly
 gdf = get_basin_layer_gdf("project.basin", layer="subbasins")
 
-# Export all geometry layers
-for layer in ["subbasins", "junctions", "reaches", "watershed"]:
-    try:
-        export_basin_geometry("project.basin", f"out/{layer}.parquet", layer=layer)
-    except (FileNotFoundError, ValueError) as e:
-        print(f"Skipping {layer}: {e}")
-
-# Export results
+# Export individual layers
+export_basin_geometry("project.basin", "subbasins.parquet", layer="subbasins")
 export_hms_results("project/results", "results.parquet", element_type="subbasin", variable="Outflow")
 
 # Query with DuckDB
-df = query_parquet("results.parquet", "SELECT name, max_value FROM _ ORDER BY max_value DESC")
+df = query_parquet("out/my_project.parquet", "SELECT * FROM _ WHERE layer = 'outflow' ORDER BY max_value DESC")
 print(df.head(10))
 ```
 

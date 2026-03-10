@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/hms2cng_logo.svg" alt="hms2cng logo" width="420"/>
+</p>
+
 # hms2cng — HMS to Cloud Native GIS
 
 **hms2cng** exports HEC-HMS hydrologic model geometry and simulation results to cloud-native geospatial formats, eliminating the traditional geospatial tax through zero-copy Arrow memory structures, serverless tile delivery, and columnar analytics.
@@ -29,10 +33,11 @@ HMS model files (.basin, .results XML)
 ```bash
 pip install hms2cng
 
-# Export subbasin geometry
-hms2cng geometry project.basin subbasins.parquet --layer subbasins
+# Export the entire project (all basin models + all runs)
+hms2cng project MyProject.hms out/
 
-# Export simulation results
+# Or export individual layers
+hms2cng geometry project.basin subbasins.parquet --layer subbasins
 hms2cng results project/results results.parquet --type subbasin --var Outflow
 
 # Query with DuckDB
@@ -53,8 +58,10 @@ export_hms_results("project/results", "results.parquet", element_type="subbasin"
 
 ## Key Features
 
+- **Full project archival** — `hms2cng project` exports all basin models and all runs into a single consolidated GeoParquet with a `layer` discriminator column
 - **GeoParquet export** — All HMS basin layers (subbasins, reaches, junctions, watershed boundary, SQLite grid layers)
 - **Results export** — Summary statistics (peak, min, mean, time of peak) spatially joined with geometry
+- **Run registry** — `hms2cng manifest` exports `manifest.parquet`, `run_registry.parquet`, `basin_inventory.parquet` for cross-project analytics
 - **DuckDB queries** — SQL analytics directly on GeoParquet files, no database server needed
 - **PMTiles generation** — Vector tile pipeline via tippecanoe, serverless HTTP delivery
 - **PostGIS sync** — Upload to enterprise spatial databases with automatic GIST indices

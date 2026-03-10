@@ -25,6 +25,7 @@ python examples/01_export_geometry.py
 | [03_duckdb_query.py](https://github.com/gpt-cmdr/hms2cng/blob/master/examples/03_duckdb_query.py) | SQL analytics on exported GeoParquet files using DuckDB |
 | [04_generate_pmtiles.py](https://github.com/gpt-cmdr/hms2cng/blob/master/examples/04_generate_pmtiles.py) | Generate PMTiles for web visualization (requires tippecanoe + pmtiles on PATH) |
 | [05_multi_run_comparison.py](https://github.com/gpt-cmdr/hms2cng/blob/master/examples/05_multi_run_comparison.py) | Compare results across multiple HMS projects using DuckDB joins |
+| [06_full_project_export.py](https://github.com/gpt-cmdr/hms2cng/blob/master/examples/06_full_project_export.py) | Full project archive: manifest, run registry, all basin geometries, all run results, cross-run DuckDB query |
 
 ## Output
 

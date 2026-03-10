@@ -146,6 +146,104 @@ Exported by `hms2cng results` or `export_hms_results()`. Parses `RUN_*.results` 
 
 ---
 
+## Consolidated Project Archive
+
+Written by `hms2cng project` or `export_full_project()`. Produces a **single GeoParquet** with a `layer` discriminator column:
+
+```
+output_dir/
+├── {project_slug}.parquet    # ALL geometry + results
+└── manifest.json             # JSON catalog (schema v2.0)
+```
+
+Query specific layers:
+
+```sql
+SELECT * FROM 'project.parquet' WHERE layer = 'subbasins'
+SELECT * FROM 'project.parquet' WHERE layer = 'outflow' AND run_name = 'Run 1'
+SELECT layer, COUNT(*) FROM 'project.parquet' GROUP BY layer
+```
+
+The `layer` column contains geometry layer names (`subbasins`, `reaches`, `junctions`, `watershed`, ...) and result variable names (`outflow`, `stage`, `inflow`, `depth`).
+
+---
+
+## Project Registry Parquets
+
+Written by `hms2cng manifest -o OUTPUT_DIR` or `export_project_manifest()`. These three files form a queryable index for cross-project analytics.
+
+### manifest.parquet
+
+**One row per project.** Project-level summary.
+
+| Column | Type | Example |
+|--------|------|---------|
+| `project_name` | `str` | `'river_bend'` |
+| `project_file` | `str` | `'C:/HMS/river_bend/river_bend.hms'` |
+| `hms_version` | `str` | `'4.11'` |
+| `crs_epsg` | `str` | `'EPSG:26914'` |
+| `is_gridded` | `bool` | `False` |
+| `num_basin_models` | `int` | `3` |
+| `num_met_models` | `int` | `2` |
+| `num_control_specs` | `int` | `2` |
+| `num_runs` | `int` | `3` |
+| `basin_models` | `str` | `'["Basin 1", "Basin 2", "Basin 3"]'` (JSON) |
+| `met_models` | `str` | `'["PMF", "100yr"]'` (JSON) |
+| `run_names` | `str` | `'["PMF Run", "100yr Run"]'` (JSON) |
+| `export_timestamp` | `str` | `'2025-06-01T12:00:00+00:00'` |
+
+### run_registry.parquet
+
+**One row per simulation run.** Links each run to its basin model, met model, control spec, and results file.
+
+| Column | Type | Example |
+|--------|------|---------|
+| `project_name` | `str` | `'river_bend'` |
+| `run_name` | `str` | `'PMF Run'` |
+| `run_slug` | `str` | `'pmf_run'` |
+| `basin_model` | `str` | `'Basin 1'` |
+| `met_model` | `str` | `'PMF'` |
+| `control_spec` | `str` | `'Control 1'` |
+| `start_date` | `datetime64` | `1979-10-23 00:00:00` |
+| `end_date` | `datetime64` | `1979-10-27 00:00:00` |
+| `time_interval_minutes` | `float64` | `60.0` |
+| `duration_hours` | `float64` | `96.0` |
+| `last_execution_date` | `str` | `'23 May 2025'` |
+| `last_execution_time` | `str` | `'14:32:11'` |
+| `results_file` | `str` | `'C:/HMS/river_bend/results/RUN_PMF Run.results'` |
+| `has_results` | `bool` | `True` |
+
+### basin_inventory.parquet
+
+**One row per basin model.** Element counts and methods for each basin file.
+
+| Column | Type | Example |
+|--------|------|---------|
+| `project_name` | `str` | `'river_bend'` |
+| `basin_model` | `str` | `'Basin 1'` |
+| `basin_slug` | `str` | `'basin_1'` |
+| `basin_file` | `str` | `'C:/HMS/river_bend/Basin 1.basin'` |
+| `description` | `str` | `'Calibration basin'` |
+| `num_subbasins` | `int32` | `5` |
+| `num_reaches` | `int32` | `3` |
+| `num_junctions` | `int32` | `4` |
+| `num_reservoirs` | `int32` | `0` |
+| `total_area` | `float64` | `42.7` |
+| `loss_methods` | `str` | `'["SCS Curve Number"]'` (JSON) |
+| `transform_methods` | `str` | `'["SCS Unit Hydrograph"]'` (JSON) |
+| `routing_methods` | `str` | `'["Muskingum"]'` (JSON) |
+
+!!! tip
+    Use the run_registry to build cross-project DuckDB catalogs:
+    ```sql
+    SELECT project_name, run_name, basin_model, met_model
+    FROM read_parquet('archives/*/run_registry.parquet', union_by_name=true)
+    WHERE has_results = true
+    ORDER BY project_name, run_name
+    ```
+
+---
+
 ## CRS Handling
 
 All layers are exported to **EPSG:4326 (WGS84)** by default when the project CRS is successfully auto-detected. The `canvas_x` / `canvas_y` columns always retain the **original project coordinates** (e.g. US Survey Feet) for reference.
