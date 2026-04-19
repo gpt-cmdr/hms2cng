@@ -61,6 +61,18 @@ def test_get_reaches_lines(tmp_path: Path):
     assert gdf.geometry.iloc[0].geom_type == "LineString"
 
 
+def test_get_outlets_from_terminal_junctions(tmp_path: Path):
+    basin = tmp_path / "test.basin"
+    _write_minimal_basin(basin)
+
+    gdf = get_basin_layer_gdf(basin, layer="outlets", crs_epsg=None, out_crs=None)
+    assert len(gdf) == 1
+    assert gdf.iloc[0]["name"] == "J1"
+    assert gdf.geometry.iloc[0].geom_type == "Point"
+    assert round(gdf.geometry.iloc[0].x, 6) == 30
+    assert round(gdf.geometry.iloc[0].y, 6) == 40
+
+
 def test_export_geometry_parquet(tmp_path: Path):
     basin = tmp_path / "test.basin"
     _write_minimal_basin(basin)

@@ -19,7 +19,7 @@ import pandas as pd
 
 LayerName = Literal[
     "subbasins", "reaches", "junctions", "diversions", "reservoirs", "sources", "sinks",
-    "watershed",
+    "outlets", "watershed",
     # SQLite-based layers (gridded HMS models with terrain preprocessing)
     "subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
     "teneightyfive_flowpaths", "subbasin_statistics",
@@ -211,6 +211,36 @@ def get_basin_layer_gdf(
         )
         return _maybe_to_crs(gdf, out_crs)
 
+    if layer == "outlets":
+        # Try SQLite outlet table first (gridded models).
+        sqlite_file = _find_sqlite_file(project_dir, basin_file)
+        if sqlite_file is not None:
+            try:
+                from hms_commander import HmsSqlite
+
+                gdf = HmsSqlite.get_outlets(sqlite_file)
+                if not gdf.empty:
+                    return _maybe_to_crs(gdf, out_crs)
+            except (ValueError, AttributeError):
+                pass  # table absent — fall through to junction-based derivation
+
+        # Derive from terminal junctions (downstream is None / empty).
+        junc_df = HmsBasin.get_junctions(basin_file)
+        if junc_df.empty:
+            raise ValueError(f"No outlets found in basin: {basin_file}")
+        outlets = junc_df[
+            junc_df["downstream"].isna() | (junc_df["downstream"].str.strip() == "")
+        ].copy()
+        if outlets.empty:
+            raise ValueError(f"No outlet junctions (terminal junctions with no downstream) found in basin: {basin_file}")
+        outlets = outlets.reset_index(drop=True)
+        gdf = gpd.GeoDataFrame(
+            outlets,
+            geometry=[Point(xy) for xy in zip(outlets["canvas_x"], outlets["canvas_y"])],
+            crs=crs_epsg,
+        )
+        return _maybe_to_crs(gdf, out_crs)
+
     # --- SQLite-based layers (gridded models with terrain data) ---
 
     if layer in ("subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
@@ -321,7 +351,7 @@ def export_basin_geometry(
     layer_name: LayerName = "subbasins" if layer is None else layer  # type: ignore[assignment]
     valid_layers = {
         "subbasins", "reaches", "junctions", "diversions", "reservoirs", "sources", "sinks",
-        "watershed", "subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
+        "outlets", "watershed", "subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
         "teneightyfive_flowpaths", "subbasin_statistics",
     }
     if layer_name not in valid_layers:
@@ -450,7 +480,7 @@ def export_all_basin_geometry(
 
 ALL_LAYERS: list[str] = [
     "subbasins", "junctions", "reaches", "diversions", "reservoirs", "sources", "sinks",
-    "watershed", "subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
+    "outlets", "watershed", "subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
     "teneightyfive_flowpaths", "subbasin_statistics",
 ]
 
