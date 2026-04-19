@@ -78,7 +78,11 @@ def _init_project(hms_file: Path):
 
 
 def _find_results_xml_for_run(project_dir: Path, run_name: str) -> Optional[Path]:
-    """Find the RUN_*.results XML file for a given run name."""
+    """Find the RUN_*.results XML file for a given run name.
+
+    HMS replaces spaces with underscores in results filenames, so
+    run "1970 simulation" produces "RUN_1970_simulation.results".
+    """
     results_dir = project_dir / "results"
 
     # Try exact match first
@@ -86,13 +90,19 @@ def _find_results_xml_for_run(project_dir: Path, run_name: str) -> Optional[Path
     if exact.is_file():
         return exact
 
-    # Glob for pattern (handles spaces in run name via filesystem listing)
+    # Try with spaces replaced by underscores (HMS convention)
+    underscore_name = run_name.replace(" ", "_")
+    exact_us = results_dir / f"RUN_{underscore_name}.results"
+    if exact_us.is_file():
+        return exact_us
+
+    # Glob fallback: normalize both sides for comparison
     if results_dir.is_dir():
+        norm_run = run_name.replace(" ", "_").lower()
         for candidate in results_dir.glob("RUN_*.results"):
-            # Strip "RUN_" prefix and ".results" suffix to get the run name
-            stem = candidate.stem  # e.g. "RUN_Calibration Run 1"
+            stem = candidate.stem
             candidate_run = stem[4:] if stem.startswith("RUN_") else stem
-            if candidate_run == run_name:
+            if candidate_run.replace(" ", "_").lower() == norm_run:
                 return candidate
 
     return None
