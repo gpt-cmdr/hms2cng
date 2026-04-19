@@ -481,7 +481,7 @@ def merge_all_layers(
             gdf = get_basin_layer_gdf(
                 basin_file, layer=layer_name, crs_epsg=crs_epsg, out_crs=out_crs,
             )
-        except (ValueError, FileNotFoundError):
+        except (ValueError, FileNotFoundError, AttributeError):
             continue
         gdf = gdf.copy()
         gdf["layer"] = layer_name
