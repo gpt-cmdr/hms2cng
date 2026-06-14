@@ -6,7 +6,7 @@ Column schemas for every layer exported by hms2cng. All values below are from re
 
 ## Geometry Layers
 
-Exported by `hms2cng geometry` or `get_basin_layer_gdf()`. Source is the `.basin` file (canvas coordinates). CRS is auto-detected from the HMS project; if not detected, coordinates remain in the project's native unit (e.g. US Survey Feet or metres).
+Exported by `hms2cng geometry` or `get_basin_layer_gdf()`. Most basin element layers are sourced from the `.basin` file (canvas coordinates). The `outlets` layer first uses an HMS `.sqlite` outlet table when present and non-empty, then falls back to terminal junctions from the `.basin` file. CRS is auto-detected from the HMS project; if not detected, coordinates remain in the project's native unit (e.g. US Survey Feet or metres).
 
 ### subbasins
 
@@ -38,6 +38,21 @@ Exported by `hms2cng geometry` or `get_basin_layer_gdf()`. Source is the `.basin
 | `canvas_x` | `float64` | `245683.85` |
 | `canvas_y` | `float64` | `3506828.36` |
 | `geometry` | `Point` | `POINT (245683.85 3506828.36)` |
+
+### outlets
+
+**Geometry:** `Point`
+**Source:** `.sqlite` outlet table for gridded HMS models when present and non-empty; otherwise terminal junctions from the `.basin` file (`downstream` is null or empty)
+
+When derived from terminal junctions, `outlets` uses the same point schema as **junctions**. The schema below was verified from `get_basin_layer_gdf(layer="outlets")` on the `castro` HMS example project.
+
+| Column | Type | Example |
+|--------|------|---------|
+| `name` | `str` | `'Outlet'` |
+| `downstream` | `str \| None` | `None` |
+| `canvas_x` | `float64` | `581044.18` |
+| `canvas_y` | `float64` | `4170374.38` |
+| `geometry` | `Point` | `POINT (581044.18 4170374.38)` |
 
 ### reaches
 
@@ -160,11 +175,12 @@ Query specific layers:
 
 ```sql
 SELECT * FROM 'project.parquet' WHERE layer = 'subbasins'
+SELECT * FROM 'project.parquet' WHERE layer = 'outlets'
 SELECT * FROM 'project.parquet' WHERE layer = 'outflow' AND run_name = 'Run 1'
 SELECT layer, COUNT(*) FROM 'project.parquet' GROUP BY layer
 ```
 
-The `layer` column contains geometry layer names (`subbasins`, `reaches`, `junctions`, `watershed`, ...) and result variable names (`outflow`, `stage`, `inflow`, `depth`).
+The `layer` column contains geometry layer names (`subbasins`, `reaches`, `junctions`, `outlets`, `watershed`, ...) and result variable names (`outflow`, `stage`, `inflow`, `depth`).
 
 ---
 
@@ -282,7 +298,7 @@ out = Path("out")
 out.mkdir(exist_ok=True)
 
 # --- Geometry layers ---
-LAYERS = ["subbasins", "junctions", "reaches", "watershed",
+LAYERS = ["subbasins", "junctions", "outlets", "reaches", "watershed",
           "subbasin_polygons", "longest_flowpaths"]
 
 for layer in LAYERS:
@@ -306,6 +322,7 @@ Typical console output:
 ```
 subbasins                    131 rows  Point
 junctions                     42 rows  Point
+outlets                        1 rows  Point
 reaches                       38 rows  LineString
 watershed                      1 rows  Polygon
 subbasin_polygons            131 rows  Polygon
