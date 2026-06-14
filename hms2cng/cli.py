@@ -22,7 +22,7 @@ def export_geometry(
         None,
         "--layer",
         "-l",
-        help="Geometry layer: subbasins, reaches, junctions, diversions, reservoirs, sources, sinks, watershed, subbasin_polygons, longest_flowpaths, centroidal_flowpaths, teneightyfive_flowpaths, subbasin_statistics",
+        help="Geometry layer: subbasins, reaches, junctions, diversions, reservoirs, sources, sinks, outlets, watershed, subbasin_polygons, longest_flowpaths, centroidal_flowpaths, teneightyfive_flowpaths, subbasin_statistics",
     ),
     crs_epsg: Optional[str] = typer.Option(
         None,

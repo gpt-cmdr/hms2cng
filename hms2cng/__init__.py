@@ -26,7 +26,7 @@ try:
 except ImportError:
     pass
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 __all__ = [
     # Single-layer exports (original)
     "export_basin_geometry",

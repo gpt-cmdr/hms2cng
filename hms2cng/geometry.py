@@ -19,7 +19,7 @@ import pandas as pd
 
 LayerName = Literal[
     "subbasins", "reaches", "junctions", "diversions", "reservoirs", "sources", "sinks",
-    "watershed",
+    "outlets", "watershed",
     # SQLite-based layers (gridded HMS models with terrain preprocessing)
     "subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
     "teneightyfive_flowpaths", "subbasin_statistics",
@@ -54,14 +54,18 @@ def _find_sqlite_file(project_dir: Path, basin_file: Path) -> Optional[Path]:
     Looks for a .sqlite file whose stem matches the basin file stem,
     then falls back to the first .sqlite in the project directory.
     """
-    project_dir = Path(project_dir)
-    # Prefer matching stem (e.g. Harvey_2017.basin -> Harvey_2017.sqlite)
-    exact = project_dir / f"{basin_file.stem}.sqlite"
-    if exact.is_file():
-        return exact
-    # Fall back to any .sqlite
-    sqlite_files = sorted(project_dir.glob("*.sqlite"))
+    sqlite_files = _find_sqlite_files(project_dir, basin_file)
     return sqlite_files[0] if sqlite_files else None
+
+
+def _find_sqlite_files(project_dir: Path, basin_file: Path) -> list[Path]:
+    """Return candidate same-directory SQLite files, preferring basin stem matches."""
+    project_dir = Path(project_dir)
+    exact = project_dir / f"{basin_file.stem}.sqlite"
+    sqlite_files = sorted(project_dir.glob("*.sqlite"))
+    if exact.is_file():
+        return [exact, *[p for p in sqlite_files if p != exact]]
+    return sqlite_files
 
 
 def _maybe_to_crs(gdf: gpd.GeoDataFrame, out_crs: Optional[str]) -> gpd.GeoDataFrame:
@@ -151,6 +155,18 @@ def get_basin_layer_gdf(
         return _maybe_to_crs(gdf, out_crs)
 
     if layer == "reaches":
+        # Prefer reach2d geometries when available; basin canvas coordinates are
+        # only schematic and can be too coarse for GIS export.
+        for sqlite_file in _find_sqlite_files(project_dir, basin_file):
+            try:
+                from hms_commander import HmsSqlite
+
+                gdf = HmsSqlite.get_reaches(sqlite_file)
+                if not gdf.empty:
+                    return _maybe_to_crs(gdf, out_crs)
+            except (ValueError, AttributeError):
+                pass
+
         df = HmsBasin.get_reaches(basin_file)
         if df.empty:
             raise ValueError(f"No reaches found in basin: {basin_file}")
@@ -211,14 +227,44 @@ def get_basin_layer_gdf(
         )
         return _maybe_to_crs(gdf, out_crs)
 
+    if layer == "outlets":
+        # Try SQLite outlet table first (gridded models).
+        sqlite_file = _find_sqlite_file(project_dir, basin_file)
+        if sqlite_file is not None:
+            try:
+                from hms_commander import HmsSqlite
+
+                gdf = HmsSqlite.get_outlets(sqlite_file)
+                if not gdf.empty:
+                    return _maybe_to_crs(gdf, out_crs)
+            except (ValueError, AttributeError):
+                pass  # table absent — fall through to junction-based derivation
+
+        # Derive from terminal junctions (downstream is None / empty).
+        junc_df = HmsBasin.get_junctions(basin_file)
+        if junc_df.empty:
+            raise ValueError(f"No outlets found in basin: {basin_file}")
+        outlets = junc_df[
+            junc_df["downstream"].isna() | (junc_df["downstream"].str.strip() == "")
+        ].copy()
+        if outlets.empty:
+            raise ValueError(f"No outlet junctions (terminal junctions with no downstream) found in basin: {basin_file}")
+        outlets = outlets.reset_index(drop=True)
+        gdf = gpd.GeoDataFrame(
+            outlets,
+            geometry=[Point(xy) for xy in zip(outlets["canvas_x"], outlets["canvas_y"])],
+            crs=crs_epsg,
+        )
+        return _maybe_to_crs(gdf, out_crs)
+
     # --- SQLite-based layers (gridded models with terrain data) ---
 
     if layer in ("subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
                  "teneightyfive_flowpaths", "subbasin_statistics"):
         from hms_commander import HmsSqlite
 
-        sqlite_file = _find_sqlite_file(project_dir, basin_file)
-        if sqlite_file is None:
+        sqlite_files = _find_sqlite_files(project_dir, basin_file)
+        if not sqlite_files:
             raise FileNotFoundError(
                 f"No .sqlite file found in {project_dir}. "
                 f"Layer '{layer}' requires an HMS SQLite grid database."
@@ -234,21 +280,33 @@ def get_basin_layer_gdf(
 
         if layer in _sqlite_geo_methods:
             method_name, label = _sqlite_geo_methods[layer]
-            try:
-                gdf = getattr(HmsSqlite, method_name)(sqlite_file)
-            except ValueError as exc:
-                raise ValueError(f"No {label} found in: {sqlite_file}") from exc
-            if gdf.empty:
-                raise ValueError(f"No {label} found in: {sqlite_file}")
-            return _maybe_to_crs(gdf, out_crs)
+            last_exc: Optional[ValueError] = None
+            for sqlite_file in sqlite_files:
+                try:
+                    gdf = getattr(HmsSqlite, method_name)(sqlite_file)
+                except ValueError as exc:
+                    last_exc = exc
+                    continue
+                if not gdf.empty:
+                    return _maybe_to_crs(gdf, out_crs)
+            raise ValueError(f"No {label} found in: {', '.join(str(p) for p in sqlite_files)}") from last_exc
 
         if layer == "subbasin_statistics":
-            try:
-                df = HmsSqlite.get_subbasin_statistics(sqlite_file)
-            except ValueError as exc:
-                raise ValueError(f"No subbasin statistics found in: {sqlite_file}") from exc
-            if df.empty:
-                raise ValueError(f"No subbasin statistics found in: {sqlite_file}")
+            last_exc: Optional[ValueError] = None
+            df = None
+            for sqlite_file in sqlite_files:
+                try:
+                    candidate_df = HmsSqlite.get_subbasin_statistics(sqlite_file)
+                except ValueError as exc:
+                    last_exc = exc
+                    continue
+                if not candidate_df.empty:
+                    df = candidate_df
+                    break
+            if df is None:
+                raise ValueError(
+                    f"No subbasin statistics found in: {', '.join(str(p) for p in sqlite_files)}"
+                ) from last_exc
             # Non-spatial: use subbasin point geometry for spatial reference
             sub_df = HmsBasin.get_subbasins(basin_file)
             if not sub_df.empty:
@@ -321,7 +379,7 @@ def export_basin_geometry(
     layer_name: LayerName = "subbasins" if layer is None else layer  # type: ignore[assignment]
     valid_layers = {
         "subbasins", "reaches", "junctions", "diversions", "reservoirs", "sources", "sinks",
-        "watershed", "subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
+        "outlets", "watershed", "subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
         "teneightyfive_flowpaths", "subbasin_statistics",
     }
     if layer_name not in valid_layers:
@@ -450,7 +508,7 @@ def export_all_basin_geometry(
 
 ALL_LAYERS: list[str] = [
     "subbasins", "junctions", "reaches", "diversions", "reservoirs", "sources", "sinks",
-    "watershed", "subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
+    "outlets", "watershed", "subbasin_polygons", "longest_flowpaths", "centroidal_flowpaths",
     "teneightyfive_flowpaths", "subbasin_statistics",
 ]
 
