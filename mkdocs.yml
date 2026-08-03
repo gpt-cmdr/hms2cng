@@ -1,7 +1,7 @@
 site_name: hms2cng — HMS to Cloud Native GIS
 site_description: CLI tool for exporting HEC-HMS results to GeoParquet, PMTiles, and PostGIS
 site_author: William Katzenmeyer, P.E., C.F.M.
-site_url: https://gpt-cmdr.github.io/hms2cng/
+site_url: https://rascommander.info/hms2cng/
 
 repo_name: gpt-cmdr/hms2cng
 repo_url: https://github.com/gpt-cmdr/hms2cng

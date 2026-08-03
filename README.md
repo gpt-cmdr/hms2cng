@@ -6,13 +6,13 @@
 
 <p align="center">
   <a href="https://pypi.org/project/hms2cng/"><img src="https://img.shields.io/pypi/v/hms2cng.svg" alt="PyPI version"></a>
-  <a href="https://hms2cng.readthedocs.io/"><img src="https://readthedocs.org/projects/hms2cng/badge/?version=latest" alt="ReadTheDocs"></a>
+  <a href="https://rascommander.info/hms2cng/"><img src="https://img.shields.io/badge/docs-rascommander.info-blue.svg" alt="Documentation"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-teal.svg" alt="MIT License"></a>
 </p>
 
 **Full project access and archival for HEC-HMS.** Exports geometry, simulation results, and project metadata to cloud-native GeoParquet — enabling cross-project DuckDB analytics, PMTiles web visualization, and PostGIS integration.
 
-**Documentation:** [hms2cng.readthedocs.io](https://hms2cng.readthedocs.io/)
+**Documentation:** [rascommander.info/hms2cng](https://rascommander.info/hms2cng/)
 
 Built on top of [`hms-commander`](https://github.com/gpt-cmdr/hms-commander) by [CLB Engineering Corporation](https://clbengineering.com/).
 

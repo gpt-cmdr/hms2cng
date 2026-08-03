@@ -79,6 +79,7 @@ hms2cng = "hms2cng.cli:app"
 [project.urls]
 Homepage = "https://github.com/gpt-cmdr/hms2cng"
 Repository = "https://github.com/gpt-cmdr/hms2cng"
+Documentation = "https://rascommander.info/hms2cng/"
 
 [tool.setuptools.packages.find]
 where = ["."]

@@ -121,3 +121,13 @@ Individual CLI commands (`geometry`, `results`, `query`, etc.) are unchanged and
 ## Testing
 
 Tests create minimal `.basin` and `.results` XML data inline (no fixture files needed). Tests exercise full export pipelines and validate geometry types/values. Integration tests (marked `@pytest.mark.integration`) use `HmsExamples.extract_project("river_bend")` for real HMS data. Run with `uv run python -m pytest tests/test_project.py tests/test_geometry.py tests/test_results_xml.py -v`.
+
+## Documentation Site
+
+- The canonical documentation is `https://rascommander.info/hms2cng/`.
+- The `ras-commander-docs` umbrella builds this repo's `master` branch and injects the shared
+  cross-product theme at publish time. Keep this repo's own `mkdocs.yml` and docs content here;
+  do not copy the umbrella theme into the repo.
+- `hms2cng.readthedocs.io` is a legacy URL and should redirect to the canonical site.
+- When a public DataFrame/GeoDataFrame contract changes, update `hms2cng/schemas.py` in the same
+  change so the agent-native surface at `/hms2cng/llms/api/` remains accurate.
