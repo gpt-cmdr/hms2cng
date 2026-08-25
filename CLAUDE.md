@@ -94,7 +94,13 @@ Individual CLI commands (`geometry`, `results`, `query`, etc.) are unchanged and
 
 **duckdb_session.py** — Thin wrapper: `DuckSession` class manages connections with spatial extension pre-loaded. `query_parquet()` and `spatial_join()` are convenience functions.
 
-**pmtiles.py** — Requires external CLI tools (`tippecanoe` and `pmtiles`). Pipeline: GeoParquet → GeoJSON (temp) → MBTiles → PMTiles. Temp files cleaned up via `tempfile.TemporaryDirectory()`.
+**pmtiles.py** — Requires external CLI tools (`tippecanoe` and `pmtiles`). Pipeline: GeoParquet → **reproject to EPSG:4326** → newline-delimited GeoJSON (scratch) → MBTiles (scratch) → PMTiles. Tiling policy mirrors `ras2cng.cog` / `ras2cng.pmtiles`, which is the upstream reference for both repos:
+
+- **Always reproject before tiling.** Tippecanoe reads RFC 7946 GeoJSON and does *not* reproject. Handing it State Plane feet produces coordinates in the millions that are clamped or wrapped into a meaningless tileset — with no error. `crs_epsg` is optional in this repo, so a layer with no CRS at all is **refused** with an actionable message rather than tiled.
+- **`--no-simplification-of-shared-nodes` is mandatory here.** HMS subbasins tile the watershed and share every interior boundary; simplified independently those edges diverge and open visible slivers between subbasins at low zoom.
+- **Intermediates stay in scratch and the final artifact is swapped atomically.** The `.mbtiles` used to be written beside the output and never deleted, and `pmtiles convert --force` wrote straight over the live tileset. `_atomic_output()` stages a PID-namespaced partial in the destination directory so a failed rebuild cannot destroy the previous good tileset.
+- **Tippecanoe's stderr is logged, not discarded.** It reports dropped features on a zero exit, so swallowing it turns data loss into an invisible failure.
+- **Tile size is unbounded by default, cappable per call.** `generate_vector_tiles(..., bounded=True)` or `HMS2CNG_TIPPECANOE_BOUNDED=1` adds `--drop-densest-as-needed` plus `--extend-zooms-if-still-dropping`, which moves dropped features to a higher zoom rather than discarding them. It is a *ceiling, not a mandate* — on sparse layers (subbasins, junctions, outlets) it never fires, so it only matters for a large basin model's reach and flowpath layers. Never use `--drop-fraction-as-needed`: it makes tippecanoe retry the sparsest features until the native binary crashes on a dense mixed geometry layer.
 
 **postgis_sync.py** — SQLAlchemy-based, prefers psycopg v3. Creates GIST spatial indices automatically. Supports "replace" or "append" modes.
 
