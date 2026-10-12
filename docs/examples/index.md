@@ -23,7 +23,7 @@ python examples/01_export_geometry.py
 | [01_export_geometry.py](https://github.com/gpt-cmdr/hms2cng/blob/master/examples/01_export_geometry.py) | Export all geometry layers (subbasins, junctions, reaches, watershed) from the Tifton example project |
 | [02_export_results.py](https://github.com/gpt-cmdr/hms2cng/blob/master/examples/02_export_results.py) | Export simulation results (outflow summary statistics) spatially joined with geometry |
 | [03_duckdb_query.py](https://github.com/gpt-cmdr/hms2cng/blob/master/examples/03_duckdb_query.py) | SQL analytics on exported GeoParquet files using DuckDB |
-| [04_generate_pmtiles.py](https://github.com/gpt-cmdr/hms2cng/blob/master/examples/04_generate_pmtiles.py) | Generate PMTiles for web visualization (requires tippecanoe + pmtiles on PATH) |
+| [04_generate_pmtiles.py](https://github.com/gpt-cmdr/hms2cng/blob/master/examples/04_generate_pmtiles.py) | Generate PMTiles for web visualization (freestiler by default; tippecanoe + pmtiles CLIs with `HMS2CNG_VECTOR_TILER=tippecanoe`) |
 | [05_multi_run_comparison.py](https://github.com/gpt-cmdr/hms2cng/blob/master/examples/05_multi_run_comparison.py) | Compare results across multiple HMS projects using DuckDB joins |
 | [06_full_project_export.py](https://github.com/gpt-cmdr/hms2cng/blob/master/examples/06_full_project_export.py) | Full project archive: manifest, run registry, all basin geometries, all run results, cross-run DuckDB query |
 
@@ -35,4 +35,4 @@ Each notebook writes output to `out/<notebook_name>/`. This directory is git-ign
 
 - Marimo notebooks are plain `.py` files — clean git diffs, runnable as scripts
 - `HmsExamples.extract_project()` auto-extracts bundled example projects from hms-commander to a temp directory
-- If tippecanoe/pmtiles are not on PATH, notebook 04 will print a helpful error and skip tile generation
+- If the selected vector tiler is unavailable, notebook 04 will print a helpful message and skip tile generation

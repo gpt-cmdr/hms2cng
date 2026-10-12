@@ -10,9 +10,8 @@ def __():
     04 — Generate PMTiles
     =====================
     Generates PMTiles (serverless vector tiles) from GeoParquet for web visualization.
-    Requires tippecanoe and pmtiles CLIs on PATH (not available via pip).
-
-    Install via conda-forge:
+    Uses the freestiler tiler installed with hms2cng. With
+    HMS2CNG_VECTOR_TILER=tippecanoe it needs the tippecanoe and pmtiles CLIs on PATH:
         conda install -c conda-forge tippecanoe pmtiles
 
     Output goes to out/04_generate_pmtiles/
@@ -23,23 +22,26 @@ def __():
 
 @app.cell
 def __():
+    import importlib.util
+    import os
     import shutil
 
-    # Check for required external CLIs
-    tippecanoe_available = shutil.which("tippecanoe") is not None
-    pmtiles_available = shutil.which("pmtiles") is not None
+    # The default freestiler backend needs no external tools; tippecanoe needs two CLIs.
+    backend = os.environ.get("HMS2CNG_VECTOR_TILER", "freestiler").strip().lower() or "freestiler"
+    if backend == "tippecanoe":
+        tiler_available = all(shutil.which(cli) for cli in ("tippecanoe", "pmtiles"))
+    else:
+        tiler_available = importlib.util.find_spec("freestiler") is not None
 
-    print(f"tippecanoe on PATH: {tippecanoe_available}")
-    print(f"pmtiles on PATH:    {pmtiles_available}")
-
-    if not (tippecanoe_available and pmtiles_available):
-        print("\nNote: Install via conda-forge to enable PMTiles generation:")
+    print(f"Vector tiler: {backend} ({'available' if tiler_available else 'not installed'})")
+    if not tiler_available:
+        print("\nInstall freestiler (pip install freestiler), or the tippecanoe CLIs:")
         print("  conda install -c conda-forge tippecanoe pmtiles")
-    return pmtiles_available, shutil, tippecanoe_available
+    return backend, tiler_available
 
 
 @app.cell
-def __(tippecanoe_available):
+def __():
     from pathlib import Path
     from hms_commander import HmsExamples
     from hms2cng.geometry import export_basin_geometry
@@ -60,14 +62,14 @@ def __(tippecanoe_available):
 
 
 @app.cell
-def __(Path, pmtiles_available, subbasins_parquet, tippecanoe_available):
+def __(Path, backend, subbasins_parquet, tiler_available):
     from hms2cng.pmtiles import generate_pmtiles_from_input
 
     out_dir = Path("out/04_generate_pmtiles")
     out_dir.mkdir(parents=True, exist_ok=True)
     pmtiles_out = out_dir / "subbasins.pmtiles"
 
-    if tippecanoe_available and pmtiles_available:
+    if tiler_available:
         generate_pmtiles_from_input(
             subbasins_parquet,
             pmtiles_out,
@@ -83,8 +85,7 @@ def __(Path, pmtiles_available, subbasins_parquet, tippecanoe_available):
         print("Serve with: npx pmtiles serve out/04_generate_pmtiles/")
         print("View at:    https://pmtiles.io (drag and drop the file)")
     else:
-        print("Skipped — tippecanoe or pmtiles not found on PATH.")
-        print("Install: conda install -c conda-forge tippecanoe pmtiles")
+        print(f"Skipped — the {backend} vector tiler is not available.")
     return generate_pmtiles_from_input, out_dir, pmtiles_out
 
 

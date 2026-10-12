@@ -30,9 +30,14 @@ pip install "hms2cng[all]"
 
 ### PMTiles Generation
 
-PMTiles generation requires external CLI tools:
+Vector PMTiles are built in-process by [freestiler](https://github.com/walkerke/freestiler),
+installed with hms2cng, so no external tools are needed. To use tippecanoe instead
+(and for `.mbtiles` output), set `HMS2CNG_VECTOR_TILER=tippecanoe` and install:
 - **tippecanoe** — `conda install -c conda-forge tippecanoe`
 - **pmtiles** — `go install github.com/protomaps/go-pmtiles/pmtiles@latest`
+
+Tiles span zoom 0-14 unless `--min-zoom`/`--max-zoom` are given, and no features are
+dropped to cap tile size.
 
 ---
 
@@ -91,7 +96,7 @@ hms2cng results project/results results.parquet --type subbasin --var Outflow
 # Query with DuckDB
 hms2cng query results.parquet "SELECT name, max_value FROM _ ORDER BY max_value DESC"
 
-# Generate PMTiles (requires tippecanoe + pmtiles)
+# Generate PMTiles
 hms2cng pmtiles subbasins.parquet subbasins.pmtiles --layer subbasins
 
 # Sync to PostGIS
