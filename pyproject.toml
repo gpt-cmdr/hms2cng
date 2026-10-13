@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "hms2cng"
-version = "0.2.0"
+version = "0.3.0"
 description = "HMS to Cloud Native GIS — CLI for exporting HEC-HMS results to GeoParquet, PMTiles, DuckDB, and PostGIS"
 readme = "README.md"
 license = "MIT"
@@ -31,6 +31,9 @@ dependencies = [
     "pandas>=2.0.0",
     "geopandas>=0.14.0",
     "pyarrow>=14.0.0",
+    # Default vector tiler (HMS2CNG_VECTOR_TILER).  Prebuilt wheels exist only
+    # for these platforms; elsewhere use HMS2CNG_VECTOR_TILER=tippecanoe.
+    "freestiler>=0.3.0; (sys_platform == 'win32' and platform_machine == 'AMD64') or (sys_platform == 'linux' and platform_machine == 'x86_64') or (sys_platform == 'darwin' and platform_machine == 'arm64')",
 ]
 
 [project.optional-dependencies]

@@ -1,4 +1,4 @@
-"""Tests for the vector tiling pipeline: reprojection, atomicity, tippecanoe flags."""
+"""Tests for the vector tiling pipeline: backends, reprojection, atomicity, flags."""
 
 from __future__ import annotations
 
@@ -40,6 +40,13 @@ def _subbasins(crs: str | None) -> gpd.GeoDataFrame:
         geometry=[left, right],
         crs=crs,
     )
+
+
+@pytest.fixture(autouse=True)
+def _tippecanoe_backend(monkeypatch):
+    """The CLI tests below exercise tippecanoe; freestiler tests opt back in."""
+
+    monkeypatch.setenv("HMS2CNG_VECTOR_TILER", "tippecanoe")
 
 
 @pytest.fixture
@@ -165,41 +172,110 @@ def test_mbtiles_output_is_produced_directly(tmp_path: Path, stub_clis) -> None:
     assert len(stub_clis) == 1, "no pmtiles conversion is needed for an .mbtiles target"
 
 
-def test_tile_size_is_unbounded_by_default(tmp_path: Path, stub_clis) -> None:
+def test_tippecanoe_never_drops_features(tmp_path: Path, stub_clis) -> None:
     source = tmp_path / "subbasins.parquet"
     _subbasins("EPSG:2278").to_parquet(source)
 
     pmtiles.generate_vector_tiles(source, tmp_path / "out.pmtiles")
-
-    assert "--drop-densest-as-needed" not in stub_clis[0]
-
-
-def test_bounded_caps_tile_size_without_risking_the_crashing_flag(
-    tmp_path: Path, stub_clis
-) -> None:
-    source = tmp_path / "subbasins.parquet"
-    _subbasins("EPSG:2278").to_parquet(source)
-
-    pmtiles.generate_vector_tiles(source, tmp_path / "out.pmtiles", bounded=True)
 
     command = stub_clis[0]
-    assert "--drop-densest-as-needed" in command
-    # Inert unless the ceiling fires; when it does, dropped features move to a
-    # higher zoom rather than disappearing.
-    assert "--extend-zooms-if-still-dropping" in command
-    # Never this one: it makes tippecanoe retry the sparsest features until the
-    # native binary crashes on a dense mixed geometry layer.
-    assert "--drop-fraction-as-needed" not in command
+    assert "--no-tile-size-limit" in command and "--no-feature-limit" in command
+    # --drop-densest-as-needed thins dense polygons into stripes, and
+    # --drop-fraction-as-needed crashes tippecanoe on dense mixed layers.
+    assert not [flag for flag in command if flag.startswith("--drop-")]
 
 
-def test_bounded_can_be_requested_by_environment(tmp_path: Path, stub_clis, monkeypatch) -> None:
-    monkeypatch.setenv("HMS2CNG_TIPPECANOE_BOUNDED", "1")
+def test_zoom_range_is_explicit_rather_than_guessed(tmp_path: Path, stub_clis) -> None:
+    """-zg guessed z2-z5 for small basins, moving points by hundreds of metres."""
+
     source = tmp_path / "subbasins.parquet"
     _subbasins("EPSG:2278").to_parquet(source)
 
     pmtiles.generate_vector_tiles(source, tmp_path / "out.pmtiles")
+    command = stub_clis[0]
+    assert "-zg" not in command
+    assert command[command.index("-Z") + 1] == "0"
+    assert command[command.index("-z") + 1] == "14"
 
-    assert "--drop-densest-as-needed" in stub_clis[0]
+    stub_clis.clear()
+    pmtiles.generate_vector_tiles(source, tmp_path / "out.pmtiles", min_zoom=8, max_zoom=16)
+    command = stub_clis[0]
+    assert command[command.index("-Z") + 1] == "8"
+    assert command[command.index("-z") + 1] == "16"
+
+
+# ---------------------------------------------------------------------------
+# freestiler backend
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fake_freestiler(monkeypatch):
+    """Record what the freestiler backend is asked to tile."""
+
+    monkeypatch.setenv("HMS2CNG_VECTOR_TILER", "freestiler")
+    calls: list[dict] = []
+
+    def run(gdf, output, layer_name, min_zoom, max_zoom):
+        calls.append(
+            {"gdf": gdf, "output": output, "layer": layer_name, "zooms": (min_zoom, max_zoom)}
+        )
+        Path(output).write_bytes(b"pmtiles")
+
+    monkeypatch.setattr(pmtiles, "_run_freestiler", run)
+    return calls
+
+
+def test_freestiler_is_the_default_backend(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("HMS2CNG_VECTOR_TILER", raising=False)
+
+    assert pmtiles._vector_tiler(tmp_path / "out.pmtiles") == "freestiler"
+
+
+def test_freestiler_tiles_reprojected_geometry_without_any_cli(
+    tmp_path: Path, monkeypatch, fake_freestiler
+) -> None:
+    def no_cli(name):
+        raise AssertionError(f"freestiler must not need the {name} CLI")
+
+    monkeypatch.setattr(pmtiles, "_require_cmd", no_cli)
+    source = tmp_path / "subbasins.parquet"
+    _subbasins("EPSG:2278").to_parquet(source)
+    output = tmp_path / "delivery" / "out.pmtiles"
+
+    pmtiles.generate_vector_tiles(source, output, layer_name="subbasins")
+
+    call = fake_freestiler[0]
+    assert call["layer"] == "subbasins"
+    assert call["zooms"] == (0, 14)
+    assert call["gdf"].crs.to_epsg() == 4326
+    assert call["output"] == output
+    assert output.read_bytes() == b"pmtiles"
+
+
+def test_mbtiles_output_always_uses_tippecanoe(tmp_path: Path, monkeypatch, stub_clis) -> None:
+    monkeypatch.setenv("HMS2CNG_VECTOR_TILER", "freestiler")
+    source = tmp_path / "subbasins.parquet"
+    _subbasins("EPSG:2278").to_parquet(source)
+
+    pmtiles.generate_vector_tiles(source, tmp_path / "out.mbtiles")
+
+    assert stub_clis[0][0] == "tippecanoe"
+
+
+def test_an_unknown_backend_is_refused(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("HMS2CNG_VECTOR_TILER", "mapnik")
+
+    with pytest.raises(ValueError, match="HMS2CNG_VECTOR_TILER"):
+        pmtiles._vector_tiler(tmp_path / "out.pmtiles")
+
+
+def test_a_reversed_zoom_range_is_refused(tmp_path: Path, fake_freestiler) -> None:
+    source = tmp_path / "subbasins.parquet"
+    _subbasins("EPSG:2278").to_parquet(source)
+
+    with pytest.raises(ValueError, match="min_zoom"):
+        pmtiles.generate_vector_tiles(source, tmp_path / "out.pmtiles", min_zoom=15, max_zoom=14)
 
 
 # ---------------------------------------------------------------------------

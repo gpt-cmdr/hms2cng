@@ -38,9 +38,13 @@ cd hms2cng
 uv pip install -e ".[all]"
 ```
 
-## PMTiles External CLI Tools
+## PMTiles Generation
 
-The `hms2cng pmtiles` command requires two external CLI tools (not available via pip):
+`hms2cng pmtiles` builds vector PMTiles in-process with freestiler, which is
+installed with hms2cng on Windows (x64), Linux (x86-64), and macOS (Apple
+silicon). On other platforms, or to write `.mbtiles`, set
+`HMS2CNG_VECTOR_TILER=tippecanoe` and install two external CLI tools (not
+available via pip):
 
 - **tippecanoe** — Generates MBTiles from GeoJSON
 - **pmtiles** — Converts MBTiles to PMTiles

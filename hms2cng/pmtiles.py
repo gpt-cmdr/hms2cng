@@ -2,14 +2,20 @@
 
 Notes
 -----
-The original scaffold assumed `tippecanoe -o out.pmtiles ...` which is not how
-older Tippecanoe works: it outputs MBTiles. To produce PMTiles you typically:
+Two vector tilers are supported, chosen with ``HMS2CNG_VECTOR_TILER``:
 
-  1) tippecanoe -> out.mbtiles
-  2) pmtiles convert out.mbtiles out.pmtiles
+``freestiler`` (default)
+    In-process Rust tiler installed with hms2cng; no external tools, so it
+    works on Windows. Writes PMTiles only.
+``tippecanoe``
+    The ``tippecanoe`` CLI, then ``pmtiles convert`` for a ``.pmtiles``
+    target. Always used for an ``.mbtiles`` target, which freestiler cannot
+    write.
 
-This module implements that pipeline and emits friendly errors when the required
-CLIs are not available.
+HMS layers are tens to thousands of features, so freestiler's larger archives
+(it snaps to the tile grid but does not simplify) cost nothing that matters
+here. The comparison is in ras2cng's
+``feature_dev_notes/vector_tiler_evaluation_2026-10-12.md``.
 
 Tiling policy here mirrors ``ras2cng.cog`` / ``ras2cng.pmtiles``, which is the
 upstream reference for both repos:
@@ -22,6 +28,12 @@ upstream reference for both repos:
   the previous good tileset or leave an orphan beside it.
 * Tippecanoe's stderr is logged rather than discarded, because it reports
   dropped features on a zero exit.
+* Features are never dropped to cap tile size. ``--drop-densest-as-needed``
+  thins dense polygons into visible stripes, and ``--drop-fraction-as-needed``
+  crashes tippecanoe on dense mixed layers.
+* The zoom range is explicit (default 0-14). Tippecanoe's ``-zg`` guessed a
+  maximum of z2-z5 for small basins, which shifted junctions and subbasin
+  centroids by 100-670 m in the browser.
 """
 
 from __future__ import annotations
@@ -47,7 +59,8 @@ def _require_cmd(cmd: str) -> str:
     if not exe:
         raise FileNotFoundError(
             f"Required command not found on PATH: {cmd}. "
-            "Install it (e.g. conda-forge tippecanoe, protomaps pmtiles) or run under WSL/Linux."
+            "Install it (e.g. conda-forge tippecanoe, protomaps pmtiles), run under "
+            "WSL/Linux, or use the default HMS2CNG_VECTOR_TILER=freestiler."
         )
     return exe
 
@@ -78,19 +91,52 @@ def _atomic_output(path: Path) -> Iterator[Path]:
         staged.unlink(missing_ok=True)
 
 
-def _bounded_tiles_requested() -> bool:
-    """Whether to cap tile size instead of choosing fidelity unconditionally.
+FREESTILER = "freestiler"
+TIPPECANOE = "tippecanoe"
 
-    ``--drop-densest-as-needed`` is a *ceiling*, not a mandate: on a sparse layer
-    it never fires, so enabling it costs nothing where density is not a problem.
-    It stays opt-in because most HMS layers -- subbasins, junctions, outlets --
-    are sparse enough that the ceiling is irrelevant, while a large basin model's
-    reach and flowpath layers can benefit.
-    """
+# Zoom range when the caller gives none. z14 resolves features to about 10 m.
+DEFAULT_MIN_ZOOM = 0
+DEFAULT_MAX_ZOOM = 14
 
-    return os.environ.get("HMS2CNG_TIPPECANOE_BOUNDED", "").strip().lower() in {
-        "1", "true", "yes", "on",
-    }
+
+def _vector_tiler(output: Path) -> str:
+    """Resolve ``HMS2CNG_VECTOR_TILER`` for this output."""
+
+    choice = os.environ.get("HMS2CNG_VECTOR_TILER", "").strip().lower() or FREESTILER
+    if choice not in (FREESTILER, TIPPECANOE):
+        raise ValueError(
+            f"HMS2CNG_VECTOR_TILER must be 'freestiler' or 'tippecanoe'; got {choice!r}"
+        )
+    if Path(output).suffix.lower() == ".mbtiles":
+        # freestiler writes PMTiles only.
+        return TIPPECANOE
+    return choice
+
+
+def _run_freestiler(
+    gdf: gpd.GeoDataFrame,
+    output: Path,
+    layer_name: str,
+    min_zoom: int,
+    max_zoom: int,
+) -> None:
+    try:
+        import freestiler
+    except ImportError as error:
+        raise RuntimeError(
+            "freestiler is not installed for this platform. Install it with "
+            "`pip install freestiler`, or set HMS2CNG_VECTOR_TILER=tippecanoe "
+            "with the tippecanoe and pmtiles CLIs on PATH."
+        ) from error
+
+    with _atomic_output(output) as staged:
+        freestiler.freestile(
+            {layer_name: gdf},
+            str(staged),
+            min_zoom=min_zoom,
+            max_zoom=max_zoom,
+            quiet=True,
+        )
 
 
 def _log_tool_output(tool: str, stderr: str | None) -> None:
@@ -175,23 +221,31 @@ def generate_vector_tiles(
     layer_name: str = "layer",
     min_zoom: Optional[int] = None,
     max_zoom: Optional[int] = None,
-    *,
-    bounded: Optional[bool] = None,
 ):
     """Generate vector tiles from GeoParquet.
 
-    If output is .pmtiles, performs: tippecanoe -> mbtiles -> pmtiles convert.
-
-    ``bounded`` caps individual tile size with ``--drop-densest-as-needed``;
-    paired with ``--extend-zooms-if-still-dropping`` that moves features to a
-    higher zoom rather than discarding them.  Defaults to the
-    ``HMS2CNG_TIPPECANOE_BOUNDED`` environment variable.
+    Uses freestiler unless ``HMS2CNG_VECTOR_TILER=tippecanoe`` or the output is
+    ``.mbtiles``; tippecanoe performs tippecanoe -> mbtiles -> pmtiles convert.
+    Every feature is kept at every zoom from ``min_zoom`` (default 0) to
+    ``max_zoom`` (default 14).
     """
 
-    tippecanoe = _require_cmd("tippecanoe")
-    if bounded is None:
-        bounded = _bounded_tiles_requested()
     output = Path(output)
+    min_zoom = DEFAULT_MIN_ZOOM if min_zoom is None else int(min_zoom)
+    max_zoom = DEFAULT_MAX_ZOOM if max_zoom is None else int(max_zoom)
+    if min_zoom > max_zoom:
+        raise ValueError(f"min_zoom ({min_zoom}) is greater than max_zoom ({max_zoom})")
+    backend = _vector_tiler(output)
+    if backend == FREESTILER:
+        gdf = _to_wgs84(gpd.read_parquet(input_file), Path(input_file))
+        gdf = gdf[gdf.geometry.notna() & ~gdf.geometry.is_empty]
+        if gdf.empty:
+            raise ValueError(f"No features to tile in {input_file}")
+        output.parent.mkdir(parents=True, exist_ok=True)
+        _run_freestiler(gdf, output, layer_name, min_zoom, max_zoom)
+        return
+
+    tippecanoe = _require_cmd("tippecanoe")
     output.parent.mkdir(parents=True, exist_ok=True)
     wants_pmtiles = output.suffix.lower() == ".pmtiles"
     if wants_pmtiles:
@@ -217,8 +271,14 @@ def generate_vector_tiles(
             str(mbtiles_path),
             "--layer",
             layer_name,
-            "-zg",  # auto zooms
+            "-Z",
+            str(min_zoom),
+            "-z",
+            str(max_zoom),
             "--force",
+            # Every feature at every zoom; never drop to cap tile size.
+            "--no-tile-size-limit",
+            "--no-feature-limit",
             # HMS subbasins tile the watershed and share every interior
             # boundary. Simplified independently, those shared edges diverge
             # and open visible slivers between subbasins at low zoom.
@@ -226,20 +286,6 @@ def generate_vector_tiles(
             "--temporary-directory",
             str(scratch_dir),
         ]
-
-        if bounded:
-            # Never --drop-fraction-as-needed: it makes tippecanoe retry the
-            # sparsest features until the native binary crashes on a dense mixed
-            # geometry layer.
-            cmd.append("--drop-densest-as-needed")
-            # Only acts when features are dropping, so it is inert unless the
-            # ceiling above actually fires.
-            cmd.append("--extend-zooms-if-still-dropping")
-
-        if min_zoom is not None:
-            cmd.extend(["-Z", str(min_zoom)])
-        if max_zoom is not None:
-            cmd.extend(["-z", str(max_zoom)])
 
         cmd.append(str(geojson_path))
 
